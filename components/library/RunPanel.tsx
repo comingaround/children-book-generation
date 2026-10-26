@@ -20,7 +20,7 @@ interface Props {
 
 const genderLabel = (g: string) => GENDERS.find((x) => x.value === g)?.label.toLowerCase() ?? g;
 
-/** Book → who plays which character → pages → Generate. The people list lives below it. */
+/** The people list, then: book → who plays which character → pages → Generate. */
 export function RunPanel({ books, selected, onSelect, initialPeople, price }: Props) {
   const router = useRouter();
   const [people, setPeople] = useState(initialPeople);
@@ -68,6 +68,8 @@ export function RunPanel({ books, selected, onSelect, initialPeople, price }: Pr
 
   return (
     <div className={styles.stack}>
+      <People people={people} setPeople={setPeople} />
+
       <div className={ui.panel}>
         <div className={ui.section}>
           <h2 className={ui.panelTitle}>New run</h2>
@@ -200,7 +202,6 @@ export function RunPanel({ books, selected, onSelect, initialPeople, price }: Pr
         </div>
       </div>
 
-      <People people={people} setPeople={setPeople} />
     </div>
   );
 }
