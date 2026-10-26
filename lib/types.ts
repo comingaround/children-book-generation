@@ -89,7 +89,12 @@ export interface Attempt {
   file: string;
   at: string;
   ms: number;
+  /** The short correction this version was made with, if any. */
+  fix?: string;
 }
+
+/** Longest correction accepted with a Regenerate: enough for "facing away from us, like the original". */
+export const FIX_MAX = 120;
 
 export type StepStatus = 'waiting' | 'queued' | 'working' | 'done' | 'error';
 
@@ -98,6 +103,8 @@ export interface RunStep {
   attempts: Attempt[];
   selected: number | null;
   message: string | null;
+  /** Correction waiting for the next attempt. */
+  fix?: string | null;
 }
 
 export type RunStatus = 'character' | 'review' | 'pages' | 'done';

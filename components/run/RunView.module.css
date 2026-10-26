@@ -226,6 +226,33 @@
   color: var(--ai-ink);
 }
 
+.madeWith {
+  color: var(--ai-ink);
+}
+
+/* The optional correction sent with the next Regenerate. */
+.fix {
+  position: relative;
+  display: flex;
+}
+
+.fixInput {
+  height: 38px;
+  padding-right: 64px;
+  font-size: var(--text-sm);
+}
+
+.fixCount {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
 .pageFoot {
   display: flex;
   align-items: center;

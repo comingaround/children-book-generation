@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 
 import { api, cx, money, seconds } from '@/lib/client';
-import { fileUrl, type Book, type Child, type Run, type RunStep } from '@/lib/types';
+import { FIX_MAX, fileUrl, type Book, type Child, type Run, type RunStep } from '@/lib/types';
 
 import { BookFonts, BookPage } from '../BookPage';
 import { BackIcon, BookIcon, CheckIcon, RedoIcon, TrashIcon } from '../icons';
@@ -26,6 +26,8 @@ export function RunView({ initial, book, child, price }: { initial: Run; book: B
   const [run, setRun] = useState(initial);
   const [error, setError] = useState<string | null>(null);
   const [reading, setReading] = useState(false);
+  /** Correction typed under each page, by page index; sent with its next Regenerate. */
+  const [fixes, setFixes] = useState<Record<number, string>>({});
   const polling = active(run);
 
   const refresh = useCallback(async () => {
@@ -49,6 +51,11 @@ export function RunView({ initial, book, child, price }: { initial: Run; book: B
     } catch (err) {
       setError((err as Error).message);
     }
+  }
+
+  async function regenerate(index: number) {
+    await act(`/api/runs/${run.id}/pages/${index}`, { action: 'regenerate', fix: fixes[index] ?? '' });
+    setFixes((f) => ({ ...f, [index]: '' }));
   }
 
   async function remove() {
@@ -239,6 +246,32 @@ export function RunView({ initial, book, child, price }: { initial: Run; book: B
                 )}
                 {step.status === 'working' && file && <p className={cx(ui.help, styles.redrawing)}>{step.message ?? 'Drawing a new version…'}</p>}
 
+                {file && step.attempts[step.selected ?? step.attempts.length - 1]?.fix && (
+                  <p className={cx(ui.help, styles.madeWith)}>Made with: “{step.attempts[step.selected ?? step.attempts.length - 1].fix}”</p>
+                )}
+
+                {(step.attempts.length > 0 || step.status === 'error') && (
+                  <label className={styles.fix}>
+                    <span className={ui.srOnly}>Optional correction for {label}</span>
+                    <input
+                      className={cx(ui.input, styles.fixInput)}
+                      value={fixes[page.index] ?? ''}
+                      maxLength={FIX_MAX}
+                      onChange={(e) => setFixes((f) => ({ ...f, [page.index]: e.target.value }))}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && c.approved && step.status !== 'working' && step.status !== 'queued') void regenerate(page.index);
+                      }}
+                      placeholder="Optional fix, e.g. facing away from us, like the original"
+                      disabled={step.status === 'working' || step.status === 'queued'}
+                    />
+                    {(fixes[page.index]?.length ?? 0) > 0 && (
+                      <span className={styles.fixCount}>
+                        {fixes[page.index].length}/{FIX_MAX}
+                      </span>
+                    )}
+                  </label>
+                )}
+
                 <div className={styles.pageFoot}>
                   {step.attempts.length > 1 && (
                     <div className={styles.versions} role="group" aria-label={`${label} versions`}>
@@ -248,6 +281,7 @@ export function RunView({ initial, book, child, price }: { initial: Run; book: B
                           className={cx(styles.version, (step.selected ?? step.attempts.length - 1) === i && styles.versionOn)}
                           onClick={() => act(`/api/runs/${run.id}/pages/${page.index}`, { action: 'select', attempt: i })}
                           aria-pressed={(step.selected ?? step.attempts.length - 1) === i}
+                          title={a.fix ? `Version ${i + 1}: “${a.fix}”` : `Version ${i + 1}`}
                         >
                           {i + 1}
                         </button>
@@ -256,7 +290,7 @@ export function RunView({ initial, book, child, price }: { initial: Run; book: B
                   )}
                   <button
                     className={cx(ui.btn, ui.secondary, ui.small, styles.redo)}
-                    onClick={() => act(`/api/runs/${run.id}/pages/${page.index}`, { action: 'regenerate' })}
+                    onClick={() => regenerate(page.index)}
                     disabled={!c.approved || step.status === 'working' || step.status === 'queued'}
                   >
                     <RedoIcon />

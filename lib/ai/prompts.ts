@@ -34,7 +34,7 @@ export function characterPrompt(book: Book, child: Child, withHeroCrop: boolean)
  * Step 2, per page: swap the hero for the approved character and leave everything else.
  * Images: 1 = page art, 2 = character reference, 3 = child photo.
  */
-export function pagePrompt(book: Book, page: Page, child: Child): string {
+export function pagePrompt(book: Book, page: Page, child: Child, fix?: string | null): string {
   const s = book.settings;
   const hero = page.characterHint.trim() || s.protagonistDescription.trim() || "the book's main character";
   const genderSwap =
@@ -48,6 +48,7 @@ export function pagePrompt(book: Book, page: Page, child: Child): string {
     'Everything else must stay identical to image 1: the other characters, the background, objects, composition, framing, colours and art style. If the hero appears more than once, change every appearance.',
     page.kind === 'cover' ? 'Keep the book title lettering exactly as it is, letter for letter.' : 'Do not add any text, letters or signatures.',
     page.scenePrompt.trim() ? `About this scene: ${page.scenePrompt.trim()}` : '',
+    fix ? `A correction for this version, which takes priority over anything above: ${fix}` : '',
     'Return the whole illustration at the same framing as image 1.',
   ]
     .filter(Boolean)

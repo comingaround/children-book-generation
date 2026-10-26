@@ -18,7 +18,7 @@ import {
   saveRun,
   writeFileIn,
 } from './store';
-import type { Book, Page, Run, RunStep } from './types';
+import { FIX_MAX, type Book, type Page, type Run, type RunStep } from './types';
 
 /**
  * A run lives in the dev server's memory while it works and on disk in data/runs/<id>/run.json,
@@ -225,7 +225,8 @@ async function drawPage(runId: string, index: number): Promise<void> {
       await forModel(await readDataFile(child.photo!), 1024),
     ];
 
-    const answer = await generateImage(images, pagePrompt(book, page, child), {
+    const fix = run.pages[index].fix ?? null;
+    const answer = await generateImage(images, pagePrompt(book, page, child, fix), {
       aspectRatio: padded.ratio,
       onRetry: (a, of) => void mutate(runId, (r) => void (r.pages[index].message = retryNote(a, of))),
     });
@@ -237,10 +238,11 @@ async function drawPage(runId: string, index: number): Promise<void> {
     await mutate(runId, (r) => {
       const step = r.pages[index];
       r.images++;
-      step.attempts.push({ file, at: new Date().toISOString(), ms: Date.now() - started });
+      step.attempts.push({ file, at: new Date().toISOString(), ms: Date.now() - started, ...(fix ? { fix } : {}) });
       step.selected = step.attempts.length - 1;
       step.status = 'done';
       step.message = null;
+      step.fix = null;
     });
     busyRetried.delete(`${runId}:${index}`);
   } catch (err) {
@@ -263,7 +265,8 @@ async function drawPage(runId: string, index: number): Promise<void> {
   }
 }
 
-export async function regeneratePage(runId: string, index: number): Promise<Run> {
+/** `fix` is an optional short correction for this one attempt, e.g. "facing away from us, like the original". */
+export async function regeneratePage(runId: string, index: number, fix?: string): Promise<Run> {
   const run = await mutate(runId, (r) => {
     const step = r.pages[index];
     if (!step) throw new HttpError(404, 'That page is not in this run');
@@ -271,6 +274,7 @@ export async function regeneratePage(runId: string, index: number): Promise<Run>
     if (step.status === 'working' || step.status === 'queued') throw new HttpError(409, 'That page is already being made');
     step.status = 'queued';
     step.message = null;
+    step.fix = fix?.trim().slice(0, FIX_MAX) || null;
     r.status = 'pages';
   });
   void pumpPages(runId);
