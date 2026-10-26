@@ -30,7 +30,7 @@ Needs Node 20+, Python 3 with PyMuPDF (`pip install pymupdf`) for the PDF import
 app/
   page.tsx                 library + child panel + recent runs
   books/[id]/page.tsx      book editor
-  runs/[id]/page.tsx       a run: character check, pages, book view
+  runs/[id]/page.tsx       a run: drawings to approve, pages, book view
   api/                     books (import, save, draft), children, runs, files
 components/                one folder per screen; ui.module.css holds the shared controls,
                            app/globals.css the design tokens (matte pastels, flat, flexbox only)
