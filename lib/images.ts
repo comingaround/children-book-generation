@@ -113,11 +113,12 @@ export function closeUpRegion(box: Box, width: number, height: number): Region {
   const margin = Math.max(bw, bh) * 0.6;
   const min = Math.min(width, height) * 0.3;
 
-  // Grow around the centre, then slide back inside the art if it pokes out.
+  // Grow around the centre, then slide back inside the art if it pokes out. Round first and
+  // clamp after, so start + length can never pass the edge by a rounding pixel.
   const span = (start: number, size: number, limit: number) => {
-    const length = Math.min(Math.max(size + 2 * margin, min), limit);
-    const from = Math.min(Math.max(start + size / 2 - length / 2, 0), limit - length);
-    return [Math.round(from), Math.round(length)];
+    const length = Math.max(1, Math.min(Math.round(Math.max(size + 2 * margin, min)), limit));
+    const from = Math.min(Math.max(Math.round(start + size / 2 - length / 2), 0), limit - length);
+    return [from, length];
   };
   const [left, w] = span(bx, bw, width);
   const [top, h] = span(by, bh, height);
