@@ -1,0 +1,190 @@
+.people {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.person {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 40px;
+  padding: 0 14px 0 4px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--sunken);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.personOn {
+  background: var(--ink);
+  color: var(--on-ink);
+}
+
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  overflow: hidden;
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.drop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 180px;
+  overflow: hidden;
+  border: 1px dashed rgb(35 37 31 / 0.24);
+  border-radius: var(--r-md);
+  background: var(--paper);
+  text-align: center;
+  cursor: pointer;
+}
+
+.dropFilled {
+  border-style: solid;
+  border-color: var(--line);
+  background: var(--sunken);
+}
+
+.drop img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.dropText {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 var(--space-5);
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+}
+
+.dropText strong {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.pair {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.pair > :first-child {
+  flex: 1 1 0;
+}
+
+.age {
+  flex: 0 0 84px;
+}
+
+.profile {
+  display: flex;
+  gap: var(--space-4);
+}
+
+.photo {
+  display: flex;
+  flex: 0 0 104px;
+  align-items: center;
+  justify-content: center;
+  height: 128px;
+  overflow: hidden;
+  border-radius: var(--r-md);
+  background: var(--sunken);
+  font-size: var(--text-xs);
+}
+
+.photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.profileText {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: var(--text-sm);
+}
+
+.profileText strong {
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  font-weight: 600;
+  letter-spacing: var(--track-display);
+}
+
+.notes {
+  color: var(--ink-muted);
+  font-style: italic;
+}
+
+.profileActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-top: auto;
+  margin-left: -14px;
+}
+
+.switchText {
+  display: flex;
+  flex-direction: column;
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+
+.plan {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-sm);
+}
+
+.plan li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+}
+
+.plan li + li {
+  border-top: 1px solid var(--line);
+}
+
+.total {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}

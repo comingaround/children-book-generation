@@ -1,0 +1,162 @@
+/* Design tokens — the only place a colour, radius or duration is written.
+   Direction and rules: docs/style-guide.md. */
+
+:root {
+  /* Neutrals */
+  --paper: #f7f6f2;
+  --surface: #fdfdfb;
+  --sunken: #e9e7df;
+  --line: #e4e2da;
+  --ink: #23251f;
+  --ink-muted: #62655c;
+  --ink-faint: #8d8f86;
+  --on-ink: #fdfdfb;
+
+  /* Matte pastel washes: fills only, never text */
+  --wash-sage: #dfe7da;
+  --wash-sky: #dbe4ee;
+  --wash-lilac: #e6dcea;
+  --wash-peach: #f3e1d4;
+  --wash-butter: #f2ebcf;
+
+  /* Status text, each ≥ 4.5:1 on paper and surface */
+  --ok-ink: #4a6e43;
+  --info-ink: #45678f;
+  --warn-ink: #8a5d22;
+  --danger-ink: #ad4630;
+  --ai-ink: #6e4f7c;
+
+  /* Type */
+  --font-display: var(--font-petrona), Georgia, serif;
+  --font-ui: var(--font-geist), system-ui, sans-serif;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 0.9375rem;
+  --text-md: 1.125rem;
+  --text-lg: 1.5rem;
+  --text-xl: clamp(1.75rem, 1.2rem + 1.5vw, 2.5rem);
+  --track-display: -0.02em;
+  --track-ui: 0.04em;
+
+  /* Shape and space */
+  --r-sm: 8px;
+  --r-md: 16px;
+  --r-lg: 32px;
+  --r-pill: 9999px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --gutter: 32px;
+  --bar-height: 56px;
+
+  /* The one shadow, for things floating above the page */
+  --shadow-float: 0 2px 6px rgb(35 37 31 / 0.06), 0 16px 40px rgb(35 37 31 / 0.1);
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-fast: 160ms;
+  --duration-base: 320ms;
+
+  color-scheme: light;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  line-height: 1.5;
+  letter-spacing: var(--track-ui);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: var(--track-display);
+  line-height: 1.2;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+}
+
+a {
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* 8px pill scrollbar, no trough. Both syntaxes: neither covers every browser. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--sunken) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--sunken);
+  border-radius: var(--r-pill);
+}
+
+@media (hover: hover) {
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--line);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

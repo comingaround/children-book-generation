@@ -1,0 +1,30 @@
+.page {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  container-type: inline-size;
+  background: #fff;
+  letter-spacing: 0;
+}
+
+.art {
+  position: absolute;
+}
+
+.art img {
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  user-select: none;
+}
+
+.line {
+  position: absolute;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.halo {
+  -webkit-text-stroke: 0.14em #fff;
+  paint-order: stroke fill;
+}

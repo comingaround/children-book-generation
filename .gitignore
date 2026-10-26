@@ -1,0 +1,22 @@
+/node_modules
+/.next/
+/out/
+/build
+*.tsbuildinfo
+next-env.d.ts
+.DS_Store
+*.log
+
+# Local secrets and settings
+.env*
+!.env.example
+
+# Book PDFs, imported books, child photos and generated pages
+/data/
+/baby-books-to-gen/
+__pycache__/
+/.claude/
+
+# Internal notes (infrastructure details, design references)
+/docs/
+/CLAUDE.md
