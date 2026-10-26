@@ -19,7 +19,7 @@ Needs Node 20+, Python 3 with PyMuPDF (`pip install pymupdf`) for the PDF import
    - The model gets the head of the approved drawing (so it has no outfit to copy), the photo, and the book's art style with its face conventions (simple eyes, nose and mouth), so people don't come out more realistic than the book.
    - With a box, it gets a **close-up** around the main character instead of the whole page, enlarged, so even a small figure is big in its view. The result is pasted back with a soft edge, and with **Keep everything outside the box** only the box area changes, so the rest stays pixel-identical.
    - Inputs are padded to the nearest aspect ratio the model supports and cropped back, so nothing is stretched.
-   - An **automatic check** (Gemini Flash) compares each character with the original: pose and direction, clothing, art style, likeness to the person, everything else unchanged. If something is off, the page is redrawn once with the check's description of the problem as the correction.
+   - Pages with several people are drawn **one by one** (a call per character, best detail) or **all at once** (one call per page, half the cost); a switch per run.
    - Regenerate takes an optional one-line correction ("back to the viewer, like the original"), for everyone on the page or one character. Every version is kept.
    - Two pages run at a time, with retries when Google is busy.
 5. **View.** The page is rebuilt in the browser: the new illustration, with the original text lines on top in the book's own fonts and each character's name swapped for their person's. Before/after slider per page, a version history per page, and a book view.
