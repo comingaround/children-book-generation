@@ -3,7 +3,7 @@
 import { useState, type Dispatch, type SetStateAction } from 'react';
 
 import { api, cx } from '@/lib/client';
-import { fileUrl, GENDERS, type Gender, type Person } from '@/lib/types';
+import { fileUrl, genderLabel, GENDERS, type Gender, type Person } from '@/lib/types';
 
 import { PlusIcon } from '../icons';
 import ui from '../ui.module.css';
@@ -186,7 +186,7 @@ export function People({ people, setPeople }: { people: Person[]; setPeople: Dis
               <div className={styles.profileText}>
                 <strong>{person.name}</strong>
                 <span className={ui.muted}>
-                  {GENDERS.find((g) => g.value === person.gender)?.label}
+                  {genderLabel(person.gender)}
                   {person.age !== null && `, ${person.age}`}
                 </span>
                 {person.notes && <span className={styles.notes}>{person.notes}</span>}

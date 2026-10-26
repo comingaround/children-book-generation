@@ -42,78 +42,80 @@ export function characterPrompt(book: Book, character: BookCharacter, person: Pe
     .join('\n');
 }
 
-/**
- * Step 2, per character on a page: give the book's character the person's face, hair and skin;
- * keep their clothing, pose and place. Images: 1 = page art (or a close-up of it around the
- * character), 2 = head of the approved drawing, 3 = photo.
- * `box` is where the character is in image 1; for a close-up it's relative to the crop.
- */
-export function pagePrompt(
-  book: Book,
-  page: Page,
-  character: BookCharacter,
-  person: Person,
-  fix?: string | null,
-  view: { closeUp: boolean; box: Box | null } = { closeUp: false, box: castOn(page, character.id).box }
-): string {
-  const cast = castOn(page, character.id);
-  const target = cast.hint.trim() || character.description.trim() || `the book's ${character.label}`;
-  const clothing = clothingOn(character, page);
-  const pose = cast.pose.trim();
-  const genderSwap =
-    character.gender !== person.gender
-      ? ` The new person is a ${person.gender} while the original was a ${character.gender}: change the face and hair accordingly, but keep the clothing and pose.`
-      : '';
-  return [
-    `${view.closeUp ? 'Image 1 is a close-up cut from a page illustration' : 'Image 1 is a page illustration'} of the picture book "${book.title}". Image 2 shows the head of ${who(person)}, drawn in this book's style. Image 3 is a photo of them, for likeness only.`,
-    `Edit image 1: change only ${target}${view.box ? `, in ${where(view.box)}` : ''}. Give them the face, hair (colour, length and style), skin tone, facial hair and any glasses from image 2. Take nothing else from image 2.${genderSwap}`,
-    `Keep their clothing exactly as in image 1${clothing ? ` (${clothing})` : ''}: same garments, colours and patterns.`,
-    `Keep their pose and direction exactly as in image 1${pose ? `: ${pose}` : ''}. Same body position, which way they face, where they look, gestures, expression, size and place in the picture.`,
-    styleLine(book),
-    'Everything else must stay identical to image 1: every other character, the background, objects, composition, framing and colours. If this character appears more than once, change every appearance.',
-    page.kind === 'cover' ? 'Keep any title lettering exactly as it is, letter for letter.' : 'Do not add any text, letters or signatures.',
-    page.scenePrompt.trim() ? `About this scene: ${page.scenePrompt.trim()}` : '',
-    fix ? `A correction for this version, which takes priority over anything above: ${fix}` : '',
-    'Return the whole image at the same framing as image 1.',
-  ]
-    .filter(Boolean)
-    .join('\n');
+/** One character being replaced on a page; `box` is their place in image 1. */
+export interface PromptMember {
+  character: BookCharacter;
+  person: Person;
+  box: Box | null;
+  /** A correction meant only for this character. */
+  fix: string | null;
 }
 
+/** What is said about one character in either framing. */
+function characterFacts(page: Page, { character, person }: PromptMember) {
+  const cast = castOn(page, character.id);
+  return {
+    target: cast.hint.trim() || character.description.trim() || `the book's ${character.label}`,
+    clothing: clothingOn(character, page),
+    pose: cast.pose.trim(),
+    genderSwap:
+      character.gender !== person.gender
+        ? ` The new person is a ${person.gender} while the original was a ${character.gender}: change the face and hair accordingly, but keep the clothing and pose.`
+        : '',
+  };
+}
+
+const correction = (fix: string | null) => (fix ? `A correction for this version, which takes priority over anything above: ${fix}` : '');
+
+/** The lines every page prompt ends with. */
+const closingLines = (book: Book, page: Page, fix: string | null) => [
+  styleLine(book),
+  'Everything else must stay identical to image 1: every other character, the background, objects, composition, framing and colours. If a changed character appears more than once, change every appearance.',
+  page.kind === 'cover' ? 'Keep any title lettering exactly as it is, letter for letter.' : 'Do not add any text, letters or signatures.',
+  page.scenePrompt.trim() ? `About this scene: ${page.scenePrompt.trim()}` : '',
+  correction(fix),
+  'Return the whole image at the same framing as image 1.',
+];
+
 /**
- * Step 2 with every character on the page in ONE image call ("all at once"). Images: 1 = the
- * close-up around all of them, then per character a head (drawn) and a photo, in order.
- * `box` is each character's place in image 1.
+ * Step 2: give book characters the people's faces, hair and skin; keep their clothing, pose and
+ * place. One member = one by one; several = all at once in a single call.
+ * Images: 1 = page art (or a close-up of it), then per member the head of their approved
+ * drawing and their photo, in order. `fix` is a correction for everyone on the page.
  */
-export function pagePromptTogether(
-  book: Book,
-  page: Page,
-  members: { character: BookCharacter; person: Person; box: Box | null }[],
-  fix?: string | null
-): string {
-  const blocks = members.map(({ character, person, box }, i) => {
-    const cast = castOn(page, character.id);
-    const target = cast.hint.trim() || character.description.trim() || `the book's ${character.label}`;
-    const clothing = clothingOn(character, page);
-    const pose = cast.pose.trim();
+export function pagePrompt(book: Book, page: Page, members: PromptMember[], closeUp: boolean, fix: string | null): string {
+  const art = `${closeUp ? 'Image 1 is a close-up cut from a page illustration' : 'Image 1 is a page illustration'} of the picture book "${book.title}".`;
+
+  if (members.length === 1) {
+    const m = members[0];
+    const f = characterFacts(page, m);
+    return [
+      `${art} Image 2 shows the head of ${who(m.person)}, drawn in this book's style. Image 3 is a photo of them, for likeness only.`,
+      `Edit image 1: change only ${f.target}${m.box ? `, in ${where(m.box)}` : ''}. Give them the face, hair (colour, length and style), skin tone, facial hair and any glasses from image 2. Take nothing else from image 2.${f.genderSwap}`,
+      `Keep their clothing exactly as in image 1${f.clothing ? ` (${f.clothing})` : ''}: same garments, colours and patterns.`,
+      `Keep their pose and direction exactly as in image 1${f.pose ? `: ${f.pose}` : ''}. Same body position, which way they face, where they look, gestures, expression, size and place in the picture.`,
+      ...closingLines(book, page, [fix, m.fix].filter(Boolean).join('; ') || null),
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  const blocks = members.map((m, i) => {
+    const f = characterFacts(page, m);
     const head = 2 + i * 2;
     return [
-      `Person ${i + 1}: ${target}${box ? `, in ${where(box)}` : ''}. Image ${head} shows the head of ${who(person)} drawn in this book's style; image ${head + 1} is their photo, for likeness only.`,
-      `Give this character the face, hair (colour, length and style), skin tone, facial hair and any glasses from image ${head}, and nothing else from it.${
-        character.gender !== person.gender ? ` The new person is a ${person.gender} while the original was a ${character.gender}: change the face and hair accordingly.` : ''
-      }`,
-      `Keep their clothing${clothing ? ` (${clothing})` : ''} and their pose and direction${pose ? ` (${pose})` : ''} exactly as in image 1: same body position, which way they face, where they look, gestures, expression, size and place.`,
-    ].join(' ');
+      `Person ${i + 1}: ${f.target}${m.box ? `, in ${where(m.box)}` : ''}. Image ${head} shows the head of ${who(m.person)} drawn in this book's style; image ${head + 1} is their photo, for likeness only.`,
+      `Give this character the face, hair (colour, length and style), skin tone, facial hair and any glasses from image ${head}, and nothing else from it.${f.genderSwap}`,
+      `Keep their clothing${f.clothing ? ` (${f.clothing})` : ''} and their pose and direction${f.pose ? ` (${f.pose})` : ''} exactly as in image 1: same body position, which way they face, where they look, gestures, expression, size and place.`,
+      m.fix ? `For this person only: ${m.fix}` : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
   });
   return [
-    `Image 1 is a close-up cut from a page illustration of the picture book "${book.title}". Edit image 1: ${members.length} characters in it get the faces of real people. Each one gets ONLY their own person; never mix, swap or blend features between them.`,
+    `${art} Edit image 1: ${members.length} characters in it get the faces of real people. Each one gets ONLY their own person; never mix, swap or blend features between them.`,
     ...blocks,
-    styleLine(book),
-    'Everything else must stay identical to image 1: every other character, the background, objects, composition, framing and colours.',
-    page.kind === 'cover' ? 'Keep any title lettering exactly as it is, letter for letter.' : 'Do not add any text, letters or signatures.',
-    page.scenePrompt.trim() ? `About this scene: ${page.scenePrompt.trim()}` : '',
-    fix ? `A correction for this version, which takes priority over anything above: ${fix}` : '',
-    'Return the whole image at the same framing as image 1.',
+    ...closingLines(book, page, fix),
   ]
     .filter(Boolean)
     .join('\n');

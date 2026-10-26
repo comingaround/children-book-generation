@@ -4,8 +4,10 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 import { api, cx, money } from '@/lib/client';
-import { drawingKey, GENDERS, testPages, type Book, type Person, type Run } from '@/lib/types';
+import { canDrawTogether, drawingKey, genderLabel, testPages, type Book, type Person, type Run } from '@/lib/types';
 
+import { Toggle } from '../Toggle';
+import { TogetherSwitch } from '../TogetherSwitch';
 import ui from '../ui.module.css';
 import { People } from './People';
 import styles from './RunPanel.module.css';
@@ -17,8 +19,6 @@ interface Props {
   initialPeople: Person[];
   price: number;
 }
-
-const genderLabel = (g: string) => GENDERS.find((x) => x.value === g)?.label.toLowerCase() ?? g;
 
 /** The people list, then: book → who plays which character → pages → Generate. */
 export function RunPanel({ books, selected, onSelect, initialPeople, price }: Props) {
@@ -40,15 +40,16 @@ export function RunPanel({ books, selected, onSelect, initialPeople, price }: Pr
 
   const assign = (characterId: string, personId: string) => book && setCast((all) => ({ ...all, [book.id]: { ...all[book.id], [characterId]: personId } }));
 
-  // Cost: one drawing per person without a saved one, plus one image per assigned character per page.
+  // Cost: one drawing per person without a saved one, plus the page images.
   const pageIndexes = book ? testPages(book, mode === 'all' ? 'all' : 3, assignments.map((a) => a.characterId)) : [];
   const saved = (a: { characterId: string; personId: string }) => !!people.find((p) => p.id === a.personId)?.drawings[drawingKey(book!.id, a.characterId)];
   const drawings = assignments.filter((a) => !(reuse && saved(a))).length;
-  // One image per assigned character on each page, or one per page when drawn all at once.
+  // One image per assigned character on a page, or one for the page when it can be drawn all at once.
+  const ids = assignments.map((a) => a.characterId);
   const pageImages = book
     ? pageIndexes.reduce((n, i) => {
-        const onPage = assignments.filter((a) => book.pages.find((p) => p.index === i)?.cast[a.characterId]?.present).length;
-        return n + (together ? Math.min(onPage, 1) : onPage);
+        const page = book.pages.find((p) => p.index === i)!;
+        return n + (together && canDrawTogether(book, page, ids) ? 1 : ids.filter((id) => page.cast[id]?.present).length);
       }, 0)
     : 0;
   const images = drawings + pageImages;
@@ -102,7 +103,7 @@ export function RunPanel({ books, selected, onSelect, initialPeople, price }: Pr
                     <li key={c.id} className={styles.castRow}>
                       <span className={styles.castName}>
                         <strong>{c.label}</strong>
-                        <span className={ui.muted}>{genderLabel(c.gender)}</span>
+                        <span className={ui.muted}>{genderLabel(c.gender).toLowerCase()}</span>
                       </span>
                       <select
                         className={cx(ui.input, styles.select, styles.castSelect)}
@@ -123,7 +124,7 @@ export function RunPanel({ books, selected, onSelect, initialPeople, price }: Pr
                 })}
               </ul>
             )}
-            {people.length === 0 && book.characters.length > 0 && <span className={ui.help}>Add people below first.</span>}
+            {people.length === 0 && book.characters.length > 0 && <span className={ui.help}>Add people above first.</span>}
           </div>
         )}
 
@@ -141,14 +142,7 @@ export function RunPanel({ books, selected, onSelect, initialPeople, price }: Pr
             {assignments.length > 1 && (
               <div className={ui.field}>
                 <span className={ui.label}>Characters on a page</span>
-                <div className={ui.segmented} role="group" aria-label="How characters on a page are drawn">
-                  <button className={ui.segment} aria-pressed={!together} onClick={() => setTogether(false)}>
-                    One by one
-                  </button>
-                  <button className={ui.segment} aria-pressed={together} onClick={() => setTogether(true)}>
-                    All at once
-                  </button>
-                </div>
+                <TogetherSwitch together={together} onChange={setTogether} />
                 <span className={ui.help}>
                   {together
                     ? 'One image per page for everyone: cheaper and faster, but each face is smaller in the AI’s view and faces can get mixed up.'
@@ -157,13 +151,7 @@ export function RunPanel({ books, selected, onSelect, initialPeople, price }: Pr
               </div>
             )}
             {assignments.some(saved) && (
-              <label className={ui.switchRow}>
-                <span className={styles.switchText}>
-                  Reuse approved drawings
-                  <span className={ui.help}>Skips step 1 for anyone already drawn as this character</span>
-                </span>
-                <input type="checkbox" className={ui.switch} checked={reuse} onChange={(e) => setReuse(e.target.checked)} />
-              </label>
+              <Toggle label="Reuse approved drawings" help="Skips step 1 for anyone already drawn as this character" checked={reuse} onChange={setReuse} />
             )}
             <ul className={styles.plan}>
               <li>

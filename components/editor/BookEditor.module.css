@@ -11,12 +11,13 @@
 .head {
   display: flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
 }
 
 .title {
-  flex: 1 1 auto;
+  flex: 1 1 260px;
   min-width: 0;
   height: 44px;
   padding: 0 var(--space-3);
@@ -193,31 +194,14 @@
   gap: var(--space-3);
 }
 
-/* The book's cast as pills; the chosen one is edited below. */
+/* The book's cast as pills (ui buttons); the chosen one is edited below. */
 .castPills {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
 }
 
-.castPill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 34px;
-  padding: 0 14px;
-  border: 0;
-  border-radius: var(--r-pill);
-  background: var(--sunken);
-  font-size: var(--text-sm);
-  font-weight: 500;
-  cursor: pointer;
-}
 
-.castPillOn {
-  background: var(--ink);
-  color: var(--on-ink);
-}
 
 .removeBtn {
   align-self: flex-start;
@@ -244,7 +228,7 @@
   min-width: 0;
 }
 
-/* What the child brings: a quiet note, not a field. */
+/* What the person brings: a quiet note, not a field. */
 .changes {
   display: flex;
   flex-direction: column;
@@ -287,11 +271,6 @@
   color: var(--ink);
 }
 
-.switchText {
-  display: flex;
-  flex-direction: column;
-  font-weight: 500;
-}
 
 .deleteBtn {
   align-self: flex-start;
@@ -322,17 +301,5 @@
 
   .inspector {
     flex-basis: auto;
-  }
-}
-
-/* Phones: the header wraps, the title gets its own row. */
-@media (max-width: 700px) {
-  .head {
-    flex-wrap: wrap;
-  }
-
-  .title {
-    flex-basis: 100%;
-    order: -1;
   }
 }

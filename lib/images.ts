@@ -71,9 +71,9 @@ export async function unpad(answer: Buffer, crop: Padded['crop'], width: number,
  * Keeps the original everywhere except soft-edged areas around the characters' boxes, so the
  * background, other characters and colours stay pixel-identical to the book.
  */
-export async function blendInBox(original: Buffer, edited: Buffer, boxes: Box | Box[], width: number, height: number): Promise<Buffer> {
+export async function blendInBox(original: Buffer, edited: Buffer, boxes: Box[], width: number, height: number): Promise<Buffer> {
   const feather = Math.max(4, Math.round(Math.min(width, height) * 0.015));
-  const rects = (Array.isArray(boxes) ? boxes : [boxes]).map((box) => {
+  const rects = boxes.map((box) => {
     // Grow the box a little: the model often redraws hair or a hand just past it.
     const grow = 0.12;
     const x = Math.max(0, (box.x - box.w * grow) / 100) * width;
@@ -101,7 +101,10 @@ export function unionBox(boxes: Box[]): Box {
   return { x, y, w: x2 - x, h: y2 - y };
 }
 
-// ---- close-up around the main character ----------------------------------------------
+/** Keeps nearly a whole close-up, fading only its edge, so it melts into the page. */
+export const EDGE_FEATHER: Box = { x: 3, y: 3, w: 94, h: 94 };
+
+// ---- close-up around the characters -------------------------------------------------
 
 /** A rectangle in pixels of the art. */
 export interface Region {
@@ -109,6 +112,18 @@ export interface Region {
   top: number;
   width: number;
   height: number;
+}
+
+/** A box (percent of the art) as whole pixels, always inside the art. */
+export function boxRegion(box: Box, width: number, height: number): Region {
+  const left = Math.min(Math.max(Math.round((box.x / 100) * width), 0), width - 1);
+  const top = Math.min(Math.max(Math.round((box.y / 100) * height), 0), height - 1);
+  return {
+    left,
+    top,
+    width: Math.max(1, Math.min(Math.round((box.w / 100) * width), width - left)),
+    height: Math.max(1, Math.min(Math.round((box.h / 100) * height), height - top)),
+  };
 }
 
 /**

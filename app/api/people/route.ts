@@ -9,7 +9,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   return respond('people:create', { status: 500, message: 'Could not save the person' }, async () => {
-    const blank: Person = { id: newId('child'), name: '', gender: 'boy', age: null, notes: '', photo: null, createdAt: new Date().toISOString(), drawings: {} };
+    const blank: Person = { id: newId('person'), name: '', gender: 'boy', age: null, notes: '', photo: null, createdAt: new Date().toISOString(), drawings: {} };
     const person = await readPersonForm(await req.formData(), blank);
     if (!person.photo) throw new HttpError(400, 'Add a photo');
     await savePerson(person);

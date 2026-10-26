@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 
 import { cx } from '@/lib/client';
-import type { Book, Run } from '@/lib/types';
+import { chosenFile, type Book, type Run } from '@/lib/types';
 
 import { BookPage } from '../BookPage';
 import { BackIcon, NextIcon } from '../icons';
@@ -15,7 +15,7 @@ export function Flipbook({ book, run, names, onClose }: { book: Book; run: Run; 
   const pages = run.pageIndexes
     .map((i) => {
       const step = run.pages[i];
-      const file = step?.attempts[step.selected ?? step.attempts.length - 1]?.file;
+      const file = step && chosenFile(step);
       const page = book.pages.find((p) => p.index === i);
       return page && file ? { page, file } : null;
     })

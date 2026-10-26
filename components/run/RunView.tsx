@@ -5,10 +5,12 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 
 import { api, cx, money, seconds } from '@/lib/client';
-import { chosenFile, FIX_MAX, fileUrl, presentOn, type Attempt, type Book, type CastStep, type Person, type Run, type RunStep } from '@/lib/types';
+import { canDrawTogether, chosenFile, chosenIndex, FIX_MAX, fileUrl, presentOn, type Book, type CastStep, type Person, type Run, type RunStep } from '@/lib/types';
 
 import { BookFonts, BookPage } from '../BookPage';
 import { BackIcon, BookIcon, CheckIcon, RedoIcon, TrashIcon } from '../icons';
+import { RunStatusChip } from '../RunStatusChip';
+import { TogetherSwitch } from '../TogetherSwitch';
 import ui from '../ui.module.css';
 import { BeforeAfter } from './BeforeAfter';
 import { Flipbook } from './Flipbook';
@@ -16,11 +18,11 @@ import styles from './RunView.module.css';
 
 const POLL_MS = 2000;
 
-const chosen = (step: RunStep) => chosenFile(step);
-
 const busyStep = (s: RunStep) => s.status === 'queued' || s.status === 'working';
 
-const active = (run: Run) => run.cast.some((c) => !c.approved && busyStep(c)) || Object.values(run.pages).some(busyStep);
+const drawingCast = (run: Run) => run.cast.some((c) => !c.approved && busyStep(c));
+
+const active = (run: Run) => drawingCast(run) || Object.values(run.pages).some(busyStep);
 
 export function RunView({ initial, book, people, price }: { initial: Run; book: Book; people: Person[]; price: number }) {
   const router = useRouter();
@@ -47,10 +49,10 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
     return () => clearInterval(timer);
   }, [polling, refresh]);
 
-  async function act(url: string, body: object) {
+  async function act(url: string, body: object, method = 'POST') {
     setError(null);
     try {
-      setRun(await api<Run>(url, { method: 'POST', json: body }));
+      setRun(await api<Run>(url, { method, json: body }));
     } catch (err) {
       setError((err as Error).message);
     }
@@ -59,15 +61,6 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
   async function regenerate(index: number) {
     await act(`/api/runs/${run.id}/pages/${index}`, { action: 'regenerate', fix: fixes[index] ?? '', fixFor: fixFor[index] || null });
     setFixes((f) => ({ ...f, [index]: '' }));
-  }
-
-  async function switchTogether(together: boolean) {
-    setError(null);
-    try {
-      setRun(await api<Run>(`/api/runs/${run.id}`, { method: 'PATCH', json: { together } }));
-    } catch (err) {
-      setError((err as Error).message);
-    }
   }
 
   async function remove() {
@@ -81,8 +74,9 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
   const pages = run.pageIndexes.map((i) => book.pages.find((p) => p.index === i)).filter((p) => !!p);
   const done = pages.filter((p) => run.pages[p.index]?.status === 'done').length;
   const approved = run.cast.every((c) => c.approved);
-  const drawing = run.cast.some((c) => !c.approved && busyStep(c));
-  const canApprove = !approved && !drawing && run.cast.every((c) => chosen(c));
+  const drawing = drawingCast(run);
+  const canApprove = !approved && !drawing && run.cast.every((c) => chosenFile(c));
+  const castIds = run.cast.map((c) => c.characterId);
   /** Name swaps for the page text: each character's name in the book → their person's name. */
   const names: [string, string][] = run.cast
     .map((c) => [characterOf(c.characterId)?.nameInText.trim() ?? '', personOf(c)?.name ?? ''] as [string, string])
@@ -106,7 +100,7 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
             {run.images} {run.images === 1 ? 'image' : 'images'} generated · {money(run.images * price)}
           </span>
         </div>
-        <StatusChip run={run} done={done} total={pages.length} />
+        <RunStatusChip status={run.status} done={done} total={pages.length} />
         <button className={cx(ui.btn, ui.secondary)} onClick={() => setReading(true)} disabled={done === 0}>
           <BookIcon />
           Book view
@@ -149,7 +143,7 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
           {run.cast.map((step) => {
             const person = personOf(step);
             const character = characterOf(step.characterId);
-            const file = chosen(step);
+            const file = chosenFile(step);
             return (
               <li key={step.characterId} className={styles.castCard}>
                 <div className={styles.charImages}>
@@ -188,10 +182,10 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
                     {step.attempts.map((a, i) => (
                       <button
                         key={a.file}
-                        className={cx(styles.attempt, (step.selected ?? step.attempts.length - 1) === i && styles.attemptOn)}
+                        className={cx(styles.attempt, chosenIndex(step) === i && styles.attemptOn)}
                         onClick={() => act(`/api/runs/${run.id}/character`, { action: 'select', characterId: step.characterId, attempt: i })}
                         disabled={step.approved}
-                        aria-pressed={(step.selected ?? step.attempts.length - 1) === i}
+                        aria-pressed={chosenIndex(step) === i}
                         aria-label={`Attempt ${i + 1}`}
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -222,14 +216,11 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
         <div className={styles.sectionHead}>
           <span className={ui.eyebrow}>Step 2 · Pages</span>
           {run.cast.length > 1 && (
-            <div className={cx(ui.segmented, styles.modeSwitch)} role="group" aria-label="How characters on a page are drawn">
-              <button className={ui.segment} aria-pressed={!run.together} onClick={() => switchTogether(false)} title="One image per character: best detail">
-                One by one
-              </button>
-              <button className={ui.segment} aria-pressed={!!run.together} onClick={() => switchTogether(true)} title="One image per page for everyone: cheaper, faces smaller">
-                All at once
-              </button>
-            </div>
+            <TogetherSwitch
+              className={styles.modeSwitch}
+              together={!!run.together}
+              onChange={(together) => act(`/api/runs/${run.id}`, { together }, 'PATCH')}
+            />
           )}
           <span className={ui.muted}>
             {done}/{pages.length} done · drag across a page to compare
@@ -238,10 +229,14 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
         <ul className={styles.pages}>
           {pages.map((page) => {
             const step = run.pages[page.index];
-            const file = chosen(step);
-            const shown = step.attempts[step.selected ?? step.attempts.length - 1] as Attempt | undefined;
-            const onPage = presentOn(book, page).filter((c) => run.cast.some((m) => m.characterId === c.id));
+            const file = chosenFile(step);
+            const shown = step.attempts.at(chosenIndex(step));
+            const onPage = presentOn(book, page).filter((c) => castIds.includes(c.id));
             const label = page.kind === 'cover' ? 'Cover' : `Page ${page.index}`;
+            const busy = busyStep(step);
+            const canFix = step.attempts.length > 0 || step.status === 'error';
+            // "All at once" quietly becomes one by one when someone on the page has no box.
+            const fallsBack = !!run.together && onPage.length > 1 && !canDrawTogether(book, page, castIds);
             return (
               <li key={page.index} className={cx(styles.pageCard, book.pageWidth > book.pageHeight && styles.pageCardWide)}>
                 <div className={styles.pageHead}>
@@ -279,11 +274,12 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
 
                 {file && shown?.fix && (
                   <p className={cx(ui.help, styles.madeWith)}>
-                    Made with: “{shown.fix}”
+                    Made with{shown.fixFor ? ` (for ${characterOf(shown.fixFor)?.label ?? 'one character'})` : ''}: “{shown.fix}”
                   </p>
                 )}
+                {fallsBack && <p className={ui.help}>Drawn one by one: not everyone on this page has a box.</p>}
 
-                {(step.attempts.length > 0 || step.status === 'error') && onPage.length > 1 && (
+                {canFix && onPage.length > 1 && (
                   <div className={ui.segmented} role="group" aria-label={`Who the fix for ${label} is for`}>
                     <button className={ui.segment} aria-pressed={!fixFor[page.index]} onClick={() => setFixFor((f) => ({ ...f, [page.index]: '' }))}>
                       Everyone
@@ -295,7 +291,7 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
                     ))}
                   </div>
                 )}
-                {(step.attempts.length > 0 || step.status === 'error') && (
+                {canFix && (
                   <label className={styles.fix}>
                     <span className={ui.srOnly}>Optional correction for {label}</span>
                     <input
@@ -304,10 +300,10 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
                       maxLength={FIX_MAX}
                       onChange={(e) => setFixes((f) => ({ ...f, [page.index]: e.target.value }))}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' && approved && step.status !== 'working' && step.status !== 'queued') void regenerate(page.index);
+                        if (e.key === 'Enter' && approved && !busy) void regenerate(page.index);
                       }}
                       placeholder="Optional fix, e.g. facing away from us, like the original"
-                      disabled={step.status === 'working' || step.status === 'queued'}
+                      disabled={busy}
                     />
                     {(fixes[page.index]?.length ?? 0) > 0 && (
                       <span className={styles.fixCount}>
@@ -323,10 +319,12 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
                       {step.attempts.map((a, i) => (
                         <button
                           key={a.file}
-                          className={cx(styles.version, (step.selected ?? step.attempts.length - 1) === i && styles.versionOn)}
+                          className={cx(styles.version, chosenIndex(step) === i && styles.versionOn)}
                           onClick={() => act(`/api/runs/${run.id}/pages/${page.index}`, { action: 'select', attempt: i })}
-                          aria-pressed={(step.selected ?? step.attempts.length - 1) === i}
-                          title={[`Version ${i + 1}`, a.together && 'all at once', a.fix && `fix: “${a.fix}”`].filter(Boolean).join(' · ')}
+                          aria-pressed={chosenIndex(step) === i}
+                          title={[`Version ${i + 1}`, a.together && 'all at once', a.fix && `fix${a.fixFor ? ` for ${characterOf(a.fixFor)?.label ?? 'one character'}` : ''}: “${a.fix}”`]
+                            .filter(Boolean)
+                            .join(' · ')}
                         >
                           {i + 1}
                         </button>
@@ -336,7 +334,7 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
                   <button
                     className={cx(ui.btn, ui.secondary, ui.small, styles.redo)}
                     onClick={() => regenerate(page.index)}
-                    disabled={!approved || step.status === 'working' || step.status === 'queued'}
+                    disabled={!approved || busy}
                   >
                     <RedoIcon />
                     {step.attempts.length ? 'Regenerate' : 'Try again'}
@@ -353,16 +351,6 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
   );
 }
 
-function StatusChip({ run, done, total }: { run: Run; done: number; total: number }) {
-  if (run.status === 'done') return <span className={cx(ui.chip, ui.sage)}>Done</span>;
-  if (run.status === 'review') return <span className={cx(ui.chip, ui.butter)}>Check the drawings</span>;
-  if (run.status === 'character') return <span className={cx(ui.chip, ui.lilac)}>Drawing people</span>;
-  return (
-    <span className={cx(ui.chip, ui.sky)}>
-      Pages {done}/{total}
-    </span>
-  );
-}
 
 function StepChip({ step }: { step: RunStep }) {
   const map: Record<RunStep['status'], [string, string]> = {

@@ -2,14 +2,16 @@ import 'server-only';
 
 import sharp from 'sharp';
 
-import { generateImage } from './ai/gemini';
-import { characterPrompt, pagePrompt, pagePromptTogether } from './ai/prompts';
+import { generateImage, type InlineImage } from './ai/gemini';
+import { characterPrompt, pagePrompt, type PromptMember } from './ai/prompts';
 import { HttpError } from './http-error';
 import {
   blendInBox,
   boxInRegion,
+  boxRegion,
   closeUpRegion,
   cutRegion,
+  EDGE_FEATHER,
   forModel,
   headOf,
   padToRatio,
@@ -21,12 +23,14 @@ import {
 } from './images';
 import { getRun, newId, readDataFile, requireBook, requirePerson, requireRun, savePerson, saveRun, writeFileIn } from './store';
 import {
+  canDrawTogether,
   castOn,
   chosenFile,
   drawingKey,
   FIX_MAX,
   type Book,
   type BookCharacter,
+  type Box,
   type CastStep,
   type Page,
   type Person,
@@ -164,15 +168,7 @@ async function drawCharacter(runId: string, characterId: string): Promise<void> 
     const sample = book.pages.find((p) => p.kind !== 'skip' && p.cast[characterId]?.present && p.cast[characterId].box);
     if (sample) {
       const art = sample === style ? styleArt : await readDataFile(`books/${book.id}/${sample.image}`);
-      const box = sample.cast[characterId].box!;
-      const crop = await sharp(art)
-        .extract({
-          left: Math.round((box.x / 100) * sample.imageWidth),
-          top: Math.round((box.y / 100) * sample.imageHeight),
-          width: Math.max(1, Math.round((box.w / 100) * sample.imageWidth)),
-          height: Math.max(1, Math.round((box.h / 100) * sample.imageHeight)),
-        })
-        .toBuffer();
+      const crop = await sharp(art).extract(boxRegion(sample.cast[characterId].box!, sample.imageWidth, sample.imageHeight)).toBuffer();
       images.push(await forModel(crop, 1024));
     }
 
@@ -267,50 +263,6 @@ async function pumpPages(runId: string): Promise<void> {
   }
 }
 
-/** The page with one or more characters replaced. */
-interface Drawn {
-  result: Buffer;
-}
-
-/**
- * One image call for one character on a page. With a box and close-ups on, only the area
- * around the box is sent (enlarged), so the figure is big in the model's view. The answer goes
- * back into the page with a soft edge.
- */
-async function render(
-  book: Book,
-  page: Page,
-  character: BookCharacter,
-  person: Person,
-  head: Buffer,
-  art: Buffer,
-  fix: string | null,
-  onRetry: (a: number, of: number) => void
-): Promise<Drawn> {
-  const { imageWidth: w, imageHeight: h } = page;
-  const pageBox = castOn(page, character.id).box;
-  const photo = await forModel(await readDataFile(person.photo!), 1024);
-  const closeUp = !!pageBox && book.settings.closeUp !== false;
-
-  const region: Region = closeUp ? closeUpRegion(pageBox!, w, h) : { left: 0, top: 0, width: w, height: h };
-  const source = closeUp ? await cutRegion(art, region) : art;
-  const padded = await padToRatio(source);
-  const box = pageBox ? (closeUp ? boxInRegion(pageBox, region, w, h) : pageBox) : null;
-
-  const answer = await generateImage([padded.image, await forModel(head, 1024), photo], pagePrompt(book, page, character, person, fix, { closeUp, box }), {
-    aspectRatio: padded.ratio,
-    onRetry,
-  });
-  const edited = await unpad(answer, padded.crop, region.width, region.height);
-  const before = await sharp(art).extract(region).png().toBuffer();
-
-  // Keep the rest outside the character's box; without that setting, still feather the
-  // close-up's edge so it melts into the page.
-  const keepBox = book.settings.keepOutsideBox && box ? box : closeUp ? { x: 3, y: 3, w: 94, h: 94 } : null;
-  const after = keepBox ? await blendInBox(before, edited, keepBox, region.width, region.height) : edited;
-  return { result: closeUp ? await pasteRegion(art, after, region) : after };
-}
-
 /** One character on a page, ready to draw. */
 interface Member {
   character: BookCharacter;
@@ -319,35 +271,45 @@ interface Member {
 }
 
 /**
- * One image call for every character on a page ("all at once"): one close-up around all of
- * their boxes, each with its own head and photo. Half the images of one-by-one for two people,
- * at the price of a smaller view of each face. Needs a box for everyone.
+ * One image call that replaces `members` on the page. With boxes and close-ups on, only the area
+ * around their boxes is sent (enlarged), so the figures are big in the model's view; the answer
+ * goes back into the page with a soft edge. One member = one by one, several = all at once.
  */
-async function renderTogether(book: Book, page: Page, members: Member[], art: Buffer, fix: string | null, onRetry: (a: number, of: number) => void): Promise<Drawn> {
+async function editRegion(
+  book: Book,
+  page: Page,
+  art: Buffer,
+  members: Member[],
+  fixes: { page: string | null; of: (m: Member) => string | null },
+  onRetry: (a: number, of: number) => void
+): Promise<Buffer> {
   const { imageWidth: w, imageHeight: h } = page;
-  const boxes = members.map((m) => castOn(page, m.character.id).box!);
-  const region = closeUpRegion(unionBox(boxes), w, h);
-  const padded = await padToRatio(await cutRegion(art, region));
-  const inRegion = boxes.map((b) => boxInRegion(b, region, w, h));
+  const pageBoxes = members.map((m) => castOn(page, m.character.id).box);
+  const closeUp = pageBoxes.every((b) => b) && book.settings.closeUp !== false;
+  const region: Region = closeUp ? closeUpRegion(unionBox(pageBoxes as Box[]), w, h) : { left: 0, top: 0, width: w, height: h };
+  // Each member's box in the image the model gets (the close-up, or the whole page).
+  const boxes = pageBoxes.map((b) => (b && closeUp ? boxInRegion(b, region, w, h) : b));
 
-  const refs = [];
+  const refs: InlineImage[] = [];
   for (const m of members) refs.push(await forModel(m.head, 1024), await forModel(await readDataFile(m.person.photo!), 1024));
-  const prompt = pagePromptTogether(
-    book,
-    page,
-    members.map((m, i) => ({ character: m.character, person: m.person, box: inRegion[i] })),
-    fix
-  );
-  const answer = await generateImage([padded.image, ...refs], prompt, { aspectRatio: padded.ratio, onRetry });
+  const prompted: PromptMember[] = members.map((m, i) => ({ character: m.character, person: m.person, box: boxes[i], fix: fixes.of(m) }));
+
+  const padded = await padToRatio(closeUp ? await cutRegion(art, region) : art);
+  const answer = await generateImage([padded.image, ...refs], pagePrompt(book, page, prompted, closeUp, fixes.page), { aspectRatio: padded.ratio, onRetry });
   const edited = await unpad(answer, padded.crop, region.width, region.height);
+
+  // Keep the rest outside the boxes; without that setting, still feather a close-up's edge.
+  const kept = boxes.filter((b): b is Box => !!b);
+  const keep = book.settings.keepOutsideBox && kept.length ? kept : closeUp ? [EDGE_FEATHER] : [];
+  if (!keep.length) return edited;
   const before = await sharp(art).extract(region).png().toBuffer();
-  const after = await blendInBox(before, edited, book.settings.keepOutsideBox ? inRegion : [{ x: 3, y: 3, w: 94, h: 94 }], region.width, region.height);
-  return { result: await pasteRegion(art, after, region) };
+  const after = await blendInBox(before, edited, keep, region.width, region.height);
+  return closeUp ? pasteRegion(art, after, region) : after;
 }
 
 /**
  * One version of a page. One by one (default): each assigned character replaced in turn on the
- * same image. All at once (run.together, everyone boxed): a single image call for all of them.
+ * same image. All at once (run.together, when canDrawTogether): one image call for all of them.
  */
 async function drawPage(runId: string, index: number): Promise<void> {
   const started = Date.now();
@@ -367,27 +329,21 @@ async function drawPage(runId: string, index: number): Promise<void> {
       if (!character) continue;
       members.push({ character, person: await requirePerson(step.personId), head: await headOf(await readDataFile(chosenFile(step)!)) });
     }
-    const multi = members.length > 1;
-    const label = (m: Member) => (multi ? `${m.character.label}: ` : '');
-    const fixFor_ = (m: Member) => (fix && (!fixFor || fixFor === m.character.id) ? fix : null);
+    // A correction is for everyone on the page, or (fixFor) for one character only.
+    const fixes = { page: fixFor ? null : fix, of: (m: Member) => (fixFor === m.character.id ? fix : null) };
+    const together = !!run.together && canDrawTogether(book, page, members.map((m) => m.character.id));
 
     let art: Buffer = await readDataFile(`books/${book.id}/${page.image}`);
-    const together = run.together && multi && book.settings.closeUp !== false && members.every((m) => castOn(page, m.character.id).box);
-
     if (together) {
-      // A correction for one character is passed on with their name, so the model knows whose it is.
-      const target = fixFor ? members.find((m) => m.character.id === fixFor) : null;
-      const pageFix = fix ? (target ? `${target.character.label}: ${fix}` : fix) : null;
       await say('Drawing everyone at once…');
-      const drawn = await renderTogether(book, page, members, art, pageFix, (a, of) => void say(retryNote(a, of)));
+      art = await editRegion(book, page, art, members, fixes, (a, of) => void say(retryNote(a, of)));
       await mutate(runId, (r) => void r.images++);
-      art = drawn.result;
     } else {
       for (const m of members) {
-        await say(`${label(m)}drawing…`);
-        const drawn = await render(book, page, m.character, m.person, m.head, art, fixFor_(m), (a, of) => void say(`${label(m)}${retryNote(a, of)}`));
+        const label = members.length > 1 ? `${m.character.label}: ` : '';
+        await say(`${label}drawing…`);
+        art = await editRegion(book, page, art, [m], fixes, (a, of) => void say(`${label}${retryNote(a, of)}`));
         await mutate(runId, (r) => void r.images++);
-        art = drawn.result;
       }
     }
 
@@ -399,7 +355,7 @@ async function drawPage(runId: string, index: number): Promise<void> {
         at: new Date().toISOString(),
         ms: Date.now() - started,
         ...(together ? { together: true } : {}),
-        ...(fix ? { fix: fixFor && multi ? `${members.find((m) => m.character.id === fixFor)?.character.label ?? ''}: ${fix}` : fix } : {}),
+        ...(fix ? { fix, ...(fixFor ? { fixFor } : {}) } : {}),
       });
       step.selected = step.attempts.length - 1;
       step.status = 'done';
@@ -438,6 +394,7 @@ export async function regeneratePage(runId: string, index: number, fix?: string,
     if (!step) throw new HttpError(404, 'That page is not in this run');
     if (!r.cast.every((c) => c.approved)) throw new HttpError(409, 'Approve the drawings first');
     if (step.status === 'working' || step.status === 'queued') throw new HttpError(409, 'That page is already being made');
+    if (fixFor && !r.cast.some((c) => c.characterId === fixFor)) throw new HttpError(400, 'That character is not in this run');
     step.status = 'queued';
     step.message = null;
     step.fix = fix?.trim().slice(0, FIX_MAX) || null;

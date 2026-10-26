@@ -27,10 +27,12 @@ export function ago(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 }
 
-/** Swaps the hero's name for the child's in page text, keeping ALL-CAPS where the book used it. */
+/** Matches any of `names` as whole words, ignoring case. Used to swap names and to mark them. */
+export const nameRegex = (names: string[]) =>
+  new RegExp(`\\b(?:${names.map((n) => n.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`, 'gi');
+
+/** Swaps a character's name for a person's in page text, keeping ALL-CAPS where the book used it. */
 export function swapName(text: string, from: string, to: string): string {
-  const name = from.trim();
-  if (!name || !to.trim()) return text;
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return text.replace(new RegExp(`\\b${escaped}\\b`, 'gi'), (match) => (match === match.toUpperCase() && match !== match.toLowerCase() ? to.toUpperCase() : to));
+  if (!from.trim() || !to.trim()) return text;
+  return text.replace(nameRegex([from]), (match) => (match === match.toUpperCase() && match !== match.toLowerCase() ? to.toUpperCase() : to));
 }

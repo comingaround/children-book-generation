@@ -11,6 +11,8 @@ export const GENDERS: { value: Gender; label: string }[] = [
   { value: 'woman', label: 'Woman' },
 ];
 
+export const genderLabel = (g: Gender) => GENDERS.find((x) => x.value === g)?.label ?? g;
+
 /** A rectangle in percent of the illustration (0–100). */
 export interface Box {
   x: number;
@@ -124,6 +126,8 @@ export interface Attempt {
   ms: number;
   /** The short correction this version was made with, if any. */
   fix?: string;
+  /** Which character `fix` was for; absent = everyone on the page. */
+  fixFor?: string;
   /** Made with every character in one image call. */
   together?: boolean;
 }
@@ -191,17 +195,35 @@ export const castOn = (page: Page, characterId: string): PageCast =>
 /** Characters on a page, in the book's order. */
 export const presentOn = (book: Book, page: Page) => book.characters.filter((c) => page.cast[c.id]?.present);
 
-export const chosenFile = (step: { attempts: { file: string }[]; selected: number | null }): string | null =>
-  step.attempts[step.selected ?? step.attempts.length - 1]?.file ?? null;
+/** The version a step shows: the one picked, else the newest. */
+export const chosenIndex = (step: { attempts: unknown[]; selected: number | null }) => step.selected ?? step.attempts.length - 1;
 
-export type PageState = 'skip' | 'noHero' | 'ready' | 'needsBox';
+export const chosenFile = (step: { attempts: { file: string }[]; selected: number | null }): string | null => step.attempts[chosenIndex(step)]?.file ?? null;
+
+/**
+ * Whether the given characters on a page can be drawn in one image call ("all at once"): more
+ * than one of them is there, close-ups are on, and every one of them has a box. Otherwise a run
+ * set to all at once draws that page one by one.
+ */
+export function canDrawTogether(book: Book, page: Page, characterIds: string[]): boolean {
+  const here = characterIds.filter((id) => page.cast[id]?.present);
+  return here.length > 1 && book.settings.closeUp !== false && here.every((id) => page.cast[id].box);
+}
+
+export type PageState = 'skip' | 'noCast' | 'ready' | 'needsBox';
 
 /** For the status dots: a page is ready once every character on it has a box. */
 export function pageState(book: Book, page: Page): PageState {
   if (page.kind === 'skip') return 'skip';
   const present = presentOn(book, page);
-  if (!present.length) return 'noHero';
+  if (!present.length) return 'noCast';
   return present.every((c) => page.cast[c.id].box) ? 'ready' : 'needsBox';
+}
+
+/** Pages with characters on them, and how many of those have every box drawn. */
+export function pageReadiness(book: Book): { ready: number; total: number } {
+  const states = book.pages.map((p) => pageState(book, p)).filter((s) => s === 'ready' || s === 'needsBox');
+  return { ready: states.filter((s) => s === 'ready').length, total: states.length };
 }
 
 /** Which pages a run makes: the cover plus the first `count` story pages with any of `characterIds`. */

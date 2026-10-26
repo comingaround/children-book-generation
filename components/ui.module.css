@@ -198,6 +198,13 @@
   cursor: pointer;
 }
 
+.switchText {
+  display: flex;
+  flex-direction: column;
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+
 .switch {
   position: relative;
   flex: 0 0 auto;

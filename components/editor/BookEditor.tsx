@@ -2,14 +2,15 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 
 import type { BookDraft, CastDraft } from '@/lib/ai/prompts';
-import { api, cx } from '@/lib/client';
+import { api, cx, nameRegex } from '@/lib/client';
 import {
   castOn,
   fileUrl,
   GENDERS,
+  pageReadiness,
   pageState,
   presentOn,
   type Book,
@@ -19,11 +20,13 @@ import {
   type Page,
   type PageCast,
   type PageKind,
+  type PageState,
 } from '@/lib/types';
 
 import { BookFonts, BookPage } from '../BookPage';
 import { GrowField } from '../GrowField';
 import { BackIcon, PlusIcon, SparkIcon, TrashIcon } from '../icons';
+import { Toggle } from '../Toggle';
 import ui from '../ui.module.css';
 import { BoxEditor } from './BoxEditor';
 import styles from './BookEditor.module.css';
@@ -31,18 +34,12 @@ import styles from './BookEditor.module.css';
 type SaveState = 'saved' | 'saving' | 'error';
 type Tab = 'characters' | 'scene';
 
-const DOT: Record<ReturnType<typeof pageState>, string> = {
-  ready: ui.dotOk,
-  needsBox: ui.dotWarn,
-  noHero: ui.dotInfo,
-  skip: '',
-};
-
-const STATE_LABEL: Record<ReturnType<typeof pageState>, string> = {
-  ready: 'Ready',
-  needsBox: 'A character needs a box',
-  noHero: 'No characters, kept as is',
-  skip: 'Skipped',
+/** How each page state looks: the strip dot, the chip over the page, and its words. */
+const STATE: Record<PageState, { dot: string; chip: string; label: string }> = {
+  ready: { dot: ui.dotOk, chip: ui.sage, label: 'Ready' },
+  needsBox: { dot: ui.dotWarn, chip: ui.peach, label: 'A character needs a box' },
+  noCast: { dot: ui.dotInfo, chip: ui.sky, label: 'No characters, kept as is' },
+  skip: { dot: '', chip: '', label: 'Skipped' },
 };
 
 const blankCharacter = (id: string): BookCharacter => ({ id, label: 'New character', nameInText: '', gender: 'girl', description: '', clothing: '' });
@@ -84,8 +81,8 @@ export function BookEditor({ initial }: { initial: Book }) {
   const page = book.pages.find((p) => p.index === current) ?? book.pages[0];
   const character = book.characters.find((c) => c.id === active) ?? book.characters[0] ?? null;
   const cast = character ? castOn(page, character.id) : null;
-  const castPages = book.pages.filter((p) => ['ready', 'needsBox'].includes(pageState(book, p)));
-  const ready = castPages.filter((p) => pageState(book, p) === 'ready').length;
+  const readiness = pageReadiness(book);
+  const state = STATE[pageState(book, page)];
 
   // Autosave 600 ms after the last change.
   useEffect(() => {
@@ -256,8 +253,8 @@ export function BookEditor({ initial }: { initial: Book }) {
           Library
         </Link>
         <input className={styles.title} value={book.title} onChange={(e) => change((b) => ({ ...b, title: e.target.value }))} aria-label="Book title" />
-        <span className={cx(ui.chip, castPages.length && ready === castPages.length ? ui.sage : ui.peach)}>
-          {ready}/{castPages.length} pages ready
+        <span className={cx(ui.chip, readiness.total && readiness.ready === readiness.total ? ui.sage : ui.peach)}>
+          {readiness.ready}/{readiness.total} pages ready
         </span>
         <span className={styles.save} aria-live="polite">
           {save === 'saving' ? 'Saving…' : save === 'error' ? 'Not saved — retrying on next change' : 'Saved'}
@@ -283,19 +280,19 @@ export function BookEditor({ initial }: { initial: Book }) {
       <div className={styles.columns}>
         <nav className={styles.strip} aria-label="Pages">
           {book.pages.map((p) => {
-            const state = pageState(book, p);
+            const thumbState = pageState(book, p);
             return (
               <button
                 key={p.index}
-                className={cx(styles.thumb, p.index === current && styles.thumbOn, state === 'skip' && styles.thumbSkip)}
+                className={cx(styles.thumb, p.index === current && styles.thumbOn, thumbState === 'skip' && styles.thumbSkip)}
                 onClick={() => setCurrent(p.index)}
                 aria-current={p.index === current}
-                title={STATE_LABEL[state]}
+                title={STATE[thumbState].label}
               >
                 <span className={styles.thumbImg} style={{ aspectRatio: `${book.pageWidth} / ${book.pageHeight}` }}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={fileUrl(`books/${book.id}/${p.thumb}`)} alt="" />
-                  <span className={cx(ui.dot, styles.thumbDot, DOT[state])} />
+                  <span className={cx(ui.dot, styles.thumbDot, STATE[thumbState].dot)} />
                 </span>
                 <span className={styles.thumbLabel}>{p.kind === 'cover' ? 'Cover' : `Page ${p.index}`}</span>
               </button>
@@ -305,8 +302,8 @@ export function BookEditor({ initial }: { initial: Book }) {
 
         <section className={styles.canvas}>
           <div className={styles.canvasBar}>
-            <span className={cx(ui.chip, { ready: ui.sage, needsBox: ui.peach, noHero: ui.sky, skip: '' }[pageState(book, page)])}>
-              {STATE_LABEL[pageState(book, page)]}
+            <span className={cx(ui.chip, state.chip)}>
+              {state.label}
             </span>
             <span className={ui.muted}>{editable ? `Drag on the picture to draw a box around ${character!.label}` : ''}</span>
             <label className={cx(ui.switchRow, styles.textToggle)}>
@@ -361,12 +358,17 @@ export function BookEditor({ initial }: { initial: Book }) {
                 </span>
                 <div className={styles.castPills} role="group" aria-label="Characters">
                   {book.characters.map((c) => (
-                    <button key={c.id} className={cx(styles.castPill, c.id === character?.id && styles.castPillOn)} onClick={() => setActive(c.id)} aria-pressed={c.id === character?.id}>
+                    <button
+                      key={c.id}
+                      className={cx(ui.btn, ui.small, c.id === character?.id ? ui.primary : ui.secondary)}
+                      onClick={() => setActive(c.id)}
+                      aria-pressed={c.id === character?.id}
+                    >
                       {c.label}
                       {page.cast[c.id]?.present && <span className={cx(ui.dot, page.cast[c.id].box ? ui.dotOk : ui.dotWarn)} title="On this page" />}
                     </button>
                   ))}
-                  <button className={styles.castPill} onClick={addCharacter}>
+                  <button className={cx(ui.btn, ui.small, ui.secondary)} onClick={addCharacter}>
                     <PlusIcon />
                     Add
                   </button>
@@ -436,13 +438,12 @@ export function BookEditor({ initial }: { initial: Book }) {
                           Find on this page
                         </button>
                       </div>
-                      <label className={ui.switchRow}>
-                        <span className={styles.switchText}>
-                          {character.label} is on this page
-                          <span className={ui.help}>Find on this page checks every character at once and draws their boxes</span>
-                        </span>
-                        <input type="checkbox" className={ui.switch} checked={!!cast?.present} onChange={(e) => setCast(page.index, character.id, { present: e.target.checked })} />
-                      </label>
+                      <Toggle
+                        label={`${character.label} is on this page`}
+                        help="Find on this page checks every character at once and draws their boxes"
+                        checked={!!cast?.present}
+                        onChange={(present) => setCast(page.index, character.id, { present })}
+                      />
                       {cast?.present && (
                         <>
                           <label className={ui.field}>
@@ -574,22 +575,15 @@ export function BookEditor({ initial }: { initial: Book }) {
   );
 }
 
-function Toggle({ label, help, checked, onChange }: { label: string; help: string; checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <label className={ui.switchRow}>
-      <span className={styles.switchText}>
-        {label}
-        <span className={ui.help}>{help}</span>
-      </span>
-      <input type="checkbox" className={ui.switch} checked={checked} onChange={(e) => onChange(e.target.checked)} />
-    </label>
-  );
-}
-
-/** Marks the characters' names in the page text. */
+/** Marks the characters' names in the page text (the same matching as the name swap). */
 function highlight(text: string, names: string[]) {
   if (!names.length) return text;
-  const pattern = names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
-  const parts = text.split(new RegExp(`(\\b(?:${pattern})\\b)`, 'gi'));
-  return parts.map((part, i) => (i % 2 ? <mark key={i}>{part}</mark> : part));
+  const parts: ReactNode[] = [];
+  let last = 0;
+  for (const m of text.matchAll(nameRegex(names))) {
+    parts.push(text.slice(last, m.index), <mark key={m.index}>{m[0]}</mark>);
+    last = m.index + m[0].length;
+  }
+  parts.push(text.slice(last));
+  return parts;
 }
