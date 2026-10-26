@@ -23,7 +23,8 @@ const blankDraft: Draft = { name: '', gender: 'boy', age: '', notes: '', photo: 
 
 const draftOf = (c: Child): Draft => ({ name: c.name, gender: c.gender, age: c.age?.toString() ?? '', notes: c.notes, photo: null, preview: null });
 
-export function ChildPanel({ books, initialChildren, price }: { books: Book[]; initialChildren: Child[]; price: number }) {
+export function ChildPanel({ book: selectedBook, initialChildren, price }: { book: Book | null; initialChildren: Child[]; price: number }) {
+  const books = selectedBook ? [selectedBook] : [];
   const router = useRouter();
   const [children, setChildren] = useState(initialChildren);
   const [childId, setChildId] = useState<string>(initialChildren[0]?.id ?? 'new');
@@ -103,11 +104,8 @@ export function ChildPanel({ books, initialChildren, price }: { books: Book[]; i
     setBusy('generate');
     setError(null);
     try {
-      const runs: Run[] = [];
-      for (const book of books) {
-        runs.push(await api<Run>('/api/runs', { method: 'POST', json: { bookId: book.id, childId: child.id, pages: mode, reuseCharacter: reuse } }));
-      }
-      router.push(`/runs/${runs[0].id}`);
+      const run = await api<Run>('/api/runs', { method: 'POST', json: { bookId: books[0].id, childId: child.id, pages: mode, reuseCharacter: reuse } });
+      router.push(`/runs/${run.id}`);
     } catch (err) {
       setError((err as Error).message);
       setBusy(null);
@@ -250,14 +248,14 @@ export function ChildPanel({ books, initialChildren, price }: { books: Book[]; i
             Cover + 3 pages
           </button>
           <button className={ui.segment} aria-pressed={mode === 'all'} onClick={() => setMode('all')}>
-            All hero pages
+            All pages
           </button>
         </div>
         {anySaved && (
           <label className={ui.switchRow}>
             <span className={styles.switchText}>
               Reuse the approved character
-              <span className={ui.help}>Skips step 1 for books this child already has a drawing for</span>
+              <span className={ui.help}>Skips step 1 if this child already has an approved drawing for this book</span>
             </span>
             <input type="checkbox" className={ui.switch} checked={reuse} onChange={(e) => setReuse(e.target.checked)} />
           </label>
@@ -298,7 +296,7 @@ export function ChildPanel({ books, initialChildren, price }: { books: Book[]; i
       <div className={styles.footer}>
         <button className={cx(ui.btn, ui.primary, ui.wide)} onClick={generate} disabled={!canGenerate || busy === 'generate'}>
           {busy === 'generate' && <span className={ui.spinner} />}
-          {books.length > 1 ? `Generate ${books.length} books` : 'Generate'}
+          Generate
         </button>
         <p className={ui.help}>The photo stays in data/ on this computer and is sent to Google only while generating.</p>
       </div>

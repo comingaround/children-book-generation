@@ -25,8 +25,8 @@ const DOT: Record<ReturnType<typeof pageState>, string> = {
 
 const STATE_LABEL: Record<ReturnType<typeof pageState>, string> = {
   ready: 'Ready',
-  needsBox: 'Hero needs a box',
-  noHero: 'No hero, kept as is',
+  needsBox: 'Main character needs a box',
+  noHero: 'No main character, kept as is',
   skip: 'Skipped',
 };
 
@@ -164,14 +164,19 @@ export function BookEditor({ initial }: { initial: Book }) {
           aria-label="Book title"
         />
         <span className={cx(ui.chip, ready === heroPages.length ? ui.sage : ui.peach)}>
-          {ready}/{heroPages.length} hero pages ready
+          {ready}/{heroPages.length} main-character pages ready
         </span>
         <span className={styles.save} aria-live="polite">
           {save === 'saving' ? 'Saving…' : save === 'error' ? 'Not saved — retrying on next change' : 'Saved'}
         </span>
-        <button className={cx(ui.btn, ui.secondary)} onClick={draftAll} disabled={!!busy}>
+        <button
+          className={cx(ui.btn, ui.secondary)}
+          onClick={draftAll}
+          disabled={!!busy}
+          title="AI reads the whole book: finds the main character's name, look and the art style, then on every page draws the box around the main character and writes the scene. You check and correct it."
+        >
           {busy === 'all' ? <span className={ui.spinner} /> : <SparkIcon />}
-          {busy === 'all' ? (progress ?? 'Drafting…') : 'Draft all with AI'}
+          {busy === 'all' ? (progress ?? 'Working…') : 'Prepare all pages with AI'}
         </button>
       </header>
 
@@ -196,7 +201,7 @@ export function BookEditor({ initial }: { initial: Book }) {
               >
                 <span className={styles.thumbImg} style={{ aspectRatio: `${book.pageWidth} / ${book.pageHeight}` }}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={fileUrl(`books/${book.id}/${p.thumb}`)} alt="" loading="lazy" />
+                  <img src={fileUrl(`books/${book.id}/${p.thumb}`)} alt="" />
                   <span className={cx(ui.dot, styles.thumbDot, DOT[state])} />
                 </span>
                 <span className={styles.thumbLabel}>{p.kind === 'cover' ? 'Cover' : `Page ${p.index}`}</span>
@@ -211,7 +216,7 @@ export function BookEditor({ initial }: { initial: Book }) {
               {STATE_LABEL[pageState(page)]}
             </span>
             <span className={ui.muted}>
-              {page.hasProtagonist && page.kind !== 'skip' ? 'Drag on the picture to draw a box around the hero' : ''}
+              {page.hasProtagonist && page.kind !== 'skip' ? 'Drag on the picture to draw a box around the main character' : ''}
             </span>
             <label className={cx(ui.switchRow, styles.textToggle)}>
               <span>Show text</span>
@@ -257,7 +262,10 @@ export function BookEditor({ initial }: { initial: Book }) {
                 </div>
                 {page.kind !== 'skip' && (
                   <label className={ui.switchRow}>
-                    <span>The hero is on this page</span>
+                    <span className={styles.switchText}>
+                      The main character is on this page
+                      <span className={ui.help}>Turn off for pages without them; those pages stay exactly as they are</span>
+                    </span>
                     <input
                       type="checkbox"
                       className={ui.switch}
@@ -271,14 +279,18 @@ export function BookEditor({ initial }: { initial: Book }) {
               {page.kind !== 'skip' && page.hasProtagonist && (
                 <div className={ui.section}>
                   <div className={styles.sectionHead}>
-                    <span className={ui.eyebrow}>The hero here</span>
+                    <span className={ui.eyebrow}>Main character on this page</span>
                     <button className={cx(ui.btn, ui.secondary, ui.small)} onClick={() => withBusy(`page${page.index}`, () => draftPage(page))} disabled={!!busy}>
                       {busy === `page${page.index}` ? <span className={ui.spinner} /> : <SparkIcon />}
-                      Draft with AI
+                      Find with AI
                     </button>
                   </div>
+                  <span className={ui.help}>
+                    The main character is the one replaced by the child. <strong>Find with AI</strong> looks at this page, draws the box around them and fills in
+                    the two fields below; check and correct it.
+                  </span>
                   <label className={ui.field}>
-                    <span className={ui.label}>Which character is the hero</span>
+                    <span className={ui.label}>Which one is the main character</span>
                     <input
                       className={ui.input}
                       value={page.characterHint}
@@ -292,7 +304,7 @@ export function BookEditor({ initial }: { initial: Book }) {
                       className={ui.textarea}
                       value={page.scenePrompt}
                       onChange={(e) => setPage(page.index, { scenePrompt: e.target.value })}
-                      placeholder="Where we are, what the hero is doing, who else is there."
+                      placeholder="Where we are, what the main character is doing, who else is there."
                     />
                   </label>
                   <div className={styles.boxRow}>
@@ -325,7 +337,7 @@ export function BookEditor({ initial }: { initial: Book }) {
                     ))}
                   </p>
                   <span className={ui.help}>
-                    {name ? `"${name}" is replaced with the child's name.` : 'Set the hero\'s name in Book settings to swap it for the child\'s.'}
+                    {name ? `"${name}" is replaced with the child's name.` : "Set the main character's name in Book settings to swap it for the child's."}
                   </span>
                 </div>
               )}
@@ -334,12 +346,16 @@ export function BookEditor({ initial }: { initial: Book }) {
             <div className={ui.panel}>
               <div className={ui.section}>
                 <div className={styles.sectionHead}>
-                  <span className={ui.eyebrow}>The hero</span>
+                  <span className={ui.eyebrow}>Main character</span>
                   <button className={cx(ui.btn, ui.secondary, ui.small)} onClick={() => withBusy('book', async () => void (await draftBook()))} disabled={!!busy}>
                     {busy === 'book' ? <span className={ui.spinner} /> : <SparkIcon />}
-                    Draft with AI
+                    Fill in with AI
                   </button>
                 </div>
+                <span className={ui.help}>
+                  The book&apos;s main character is the one replaced by the child. <strong>Fill in with AI</strong> reads the cover and the text to find their
+                  name, look and the art style.
+                </span>
                 <div className={styles.pair}>
                   <label className={ui.field}>
                     <span className={ui.label}>Name in the text</span>
@@ -347,7 +363,7 @@ export function BookEditor({ initial }: { initial: Book }) {
                   </label>
                   <div className={ui.field}>
                     <span className={ui.label}>Gender</span>
-                    <div className={ui.segmented} role="group" aria-label="Hero gender">
+                    <div className={ui.segmented} role="group" aria-label="Main character gender">
                       {(['boy', 'girl'] as const).map((g) => (
                         <button key={g} className={ui.segment} aria-pressed={book.settings.protagonistGender === g} onClick={() => setSettings({ protagonistGender: g })}>
                           {g === 'boy' ? 'Boy' : 'Girl'}
@@ -383,7 +399,7 @@ export function BookEditor({ initial }: { initial: Book }) {
                 <label className={ui.switchRow}>
                   <span className={styles.switchText}>
                     Keep everything outside the box
-                    <span className={ui.help}>Only the hero&apos;s area is taken from the AI; the rest stays pixel-identical</span>
+                    <span className={ui.help}>Only the main character&apos;s box is taken from the AI; the rest stays pixel-identical</span>
                   </span>
                   <input type="checkbox" className={ui.switch} checked={book.settings.keepOutsideBox} onChange={(e) => setSettings({ keepOutsideBox: e.target.checked })} />
                 </label>

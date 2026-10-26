@@ -21,12 +21,11 @@ interface Props {
 
 export function Library({ books, initialChildren, runs, price }: Props) {
   const router = useRouter();
-  const [selected, setSelected] = useState<string[]>(books.slice(0, 1).map((b) => b.id));
+  const [selected, setSelected] = useState<string | null>(books[0]?.id ?? null);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const toggle = (id: string) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
 
   async function importPdf(file: File) {
     setImporting(true);
@@ -49,7 +48,7 @@ export function Library({ books, initialChildren, runs, price }: Props) {
           <div>
             <h1 className={styles.title}>Library</h1>
             <p className={ui.muted}>
-              {books.length} {books.length === 1 ? 'book' : 'books'} · open one to prepare its prompts, tick the ones to generate
+              {books.length} {books.length === 1 ? 'book' : 'books'} · open a book to prepare it, select one to generate
             </p>
           </div>
           <input
@@ -84,7 +83,7 @@ export function Library({ books, initialChildren, runs, price }: Props) {
         ) : (
           <ul className={styles.grid}>
             {books.map((book) => (
-              <BookCard key={book.id} book={book} selected={selected.includes(book.id)} onToggle={() => toggle(book.id)} />
+              <BookCard key={book.id} book={book} selected={selected === book.id} onSelect={() => setSelected(book.id)} />
             ))}
           </ul>
         )}
@@ -118,13 +117,13 @@ export function Library({ books, initialChildren, runs, price }: Props) {
       </div>
 
       <aside className={styles.side}>
-        <ChildPanel books={books.filter((b) => selected.includes(b.id))} initialChildren={initialChildren} price={price} />
+        <ChildPanel book={books.find((b) => b.id === selected) ?? null} initialChildren={initialChildren} price={price} />
       </aside>
     </main>
   );
 }
 
-function BookCard({ book, selected, onToggle }: { book: Book; selected: boolean; onToggle: () => void }) {
+function BookCard({ book, selected, onSelect }: { book: Book; selected: boolean; onSelect: () => void }) {
   const cover = book.pages.find((p) => p.kind === 'cover') ?? book.pages[0];
   const heroPages = book.pages.filter((p) => ['ready', 'needsBox'].includes(pageState(p)));
   const ready = heroPages.filter((p) => pageState(p) === 'ready').length;
@@ -139,14 +138,14 @@ function BookCard({ book, selected, onToggle }: { book: Book; selected: boolean;
         <span className={styles.cardTitle}>{book.title}</span>
         <span className={styles.cardMeta}>
           <span className={cx(ui.dot, ready === heroPages.length ? ui.dotOk : ui.dotWarn)} />
-          {story} pages · {ready}/{heroPages.length} hero pages ready
+          {story} pages · {ready}/{heroPages.length} main-character pages ready
         </span>
       </Link>
       <button
         className={cx(styles.pick, selected && styles.pickOn)}
-        onClick={onToggle}
+        onClick={onSelect}
         aria-pressed={selected}
-        aria-label={selected ? `Don't generate ${book.title}` : `Generate ${book.title}`}
+        aria-label={`Generate ${book.title}`}
       >
         {selected ? <CheckIcon /> : null}
         {selected ? 'Selected' : 'Select'}
