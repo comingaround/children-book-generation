@@ -538,7 +538,7 @@ export function BookEditor({ initial }: { initial: Book }) {
                   <span className={ui.label}>How the book is drawn</span>
                   <GrowField value={book.settings.artStyle} onChange={(v) => setSettings({ artStyle: v })} placeholder="soft watercolour with fine ink outlines and warm pastel washes" />
                   <span className={ui.help}>
-                    Sent with every drawing so redrawn people match the book. Be specific about line weight, colouring and texture; the automatic check also compares the style.
+                    Sent with every drawing so redrawn people match the book. Be specific about line weight, colouring and texture.
                   </span>
                 </label>
               </div>
@@ -556,12 +556,6 @@ export function BookEditor({ initial }: { initial: Book }) {
                   help="The AI gets only the area around each character, enlarged: sharper faces on small figures, pose kept better"
                   checked={book.settings.closeUp !== false}
                   onChange={(v) => setSettings({ closeUp: v })}
-                />
-                <Toggle
-                  label="Check each character automatically"
-                  help="AI compares each result with the original (pose, clothing, style, likeness) and tells you what's off. It never redraws by itself"
-                  checked={book.settings.autoCheck !== false}
-                  onChange={(v) => setSettings({ autoCheck: v })}
                 />
                 <Toggle label="White outline on text" help="For text set over busy pictures" checked={book.settings.textHalo} onChange={(v) => setSettings({ textHalo: v })} />
               </div>

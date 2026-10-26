@@ -2,8 +2,8 @@ import 'server-only';
 
 import sharp from 'sharp';
 
-import { generateImage, generateJson } from './ai/gemini';
-import { characterPrompt, checkPassed, pageCheckPrompt, pageCheckSchema, pagePrompt, pagePromptTogether, type PageCheck } from './ai/prompts';
+import { generateImage } from './ai/gemini';
+import { characterPrompt, pagePrompt, pagePromptTogether } from './ai/prompts';
 import { HttpError } from './http-error';
 import {
   blendInBox,
@@ -267,11 +267,9 @@ async function pumpPages(runId: string): Promise<void> {
   }
 }
 
-/** The page with one character replaced, plus the area around them before and after (for the check). */
+/** The page with one or more characters replaced. */
 interface Drawn {
   result: Buffer;
-  before: Buffer;
-  after: Buffer;
 }
 
 /**
@@ -310,8 +308,7 @@ async function render(
   // close-up's edge so it melts into the page.
   const keepBox = book.settings.keepOutsideBox && box ? box : closeUp ? { x: 3, y: 3, w: 94, h: 94 } : null;
   const after = keepBox ? await blendInBox(before, edited, keepBox, region.width, region.height) : edited;
-  const result = closeUp ? await pasteRegion(art, after, region) : after;
-  return { result, before, after };
+  return { result: closeUp ? await pasteRegion(art, after, region) : after };
 }
 
 /** One character on a page, ready to draw. */
@@ -345,34 +342,12 @@ async function renderTogether(book: Book, page: Page, members: Member[], art: Bu
   const edited = await unpad(answer, padded.crop, region.width, region.height);
   const before = await sharp(art).extract(region).png().toBuffer();
   const after = await blendInBox(before, edited, book.settings.keepOutsideBox ? inRegion : [{ x: 3, y: 3, w: 94, h: 94 }], region.width, region.height);
-  return { result: await pasteRegion(art, after, region), before, after };
-}
-
-/** The text model compares before and after; null when the check itself fails (never blocks a page). */
-async function checkCharacter(
-  book: Book,
-  page: Page,
-  character: BookCharacter,
-  head: Buffer,
-  drawn: Drawn,
-  alsoChanged: BookCharacter[] = []
-): Promise<PageCheck | null> {
-  try {
-    return await generateJson<PageCheck>(
-      [await forModel(drawn.before, 1024), await forModel(drawn.after, 1024), await forModel(head, 768)],
-      pageCheckPrompt(book, page, character, alsoChanged),
-      pageCheckSchema
-    );
-  } catch (err) {
-    console.warn('[run] check failed', err instanceof Error ? err.message : err);
-    return null;
-  }
+  return { result: await pasteRegion(art, after, region) };
 }
 
 /**
  * One version of a page. One by one (default): each assigned character replaced in turn on the
  * same image. All at once (run.together, everyone boxed): a single image call for all of them.
- * The check only reports; it never redraws (that costs an image — the person decides).
  */
 async function drawPage(runId: string, index: number): Promise<void> {
   const started = Date.now();
@@ -397,7 +372,6 @@ async function drawPage(runId: string, index: number): Promise<void> {
     const fixFor_ = (m: Member) => (fix && (!fixFor || fixFor === m.character.id) ? fix : null);
 
     let art: Buffer = await readDataFile(`books/${book.id}/${page.image}`);
-    const checks: { member: Member; drawn: Drawn }[] = [];
     const together = run.together && multi && book.settings.closeUp !== false && members.every((m) => castOn(page, m.character.id).box);
 
     if (together) {
@@ -408,36 +382,13 @@ async function drawPage(runId: string, index: number): Promise<void> {
       const drawn = await renderTogether(book, page, members, art, pageFix, (a, of) => void say(retryNote(a, of)));
       await mutate(runId, (r) => void r.images++);
       art = drawn.result;
-      for (const m of members) checks.push({ member: m, drawn });
     } else {
       for (const m of members) {
         await say(`${label(m)}drawing…`);
         const drawn = await render(book, page, m.character, m.person, m.head, art, fixFor_(m), (a, of) => void say(`${label(m)}${retryNote(a, of)}`));
         await mutate(runId, (r) => void r.images++);
         art = drawn.result;
-        checks.push({ member: m, drawn });
       }
-    }
-
-    const notes: string[] = [];
-    let allOk = true;
-    let anyCheck = false;
-    if (book.settings.autoCheck !== false) {
-      await say('Checking pose, clothing, style and likeness…');
-      // All at once, everyone changed in the same image: tell each check which others are meant to differ.
-      const results = await Promise.all(
-        checks.map(({ member, drawn }) =>
-          checkCharacter(book, page, member.character, member.head, drawn, together ? members.filter((m) => m !== member).map((m) => m.character) : [])
-        )
-      );
-      results.forEach((check, i) => {
-        const m = checks[i].member;
-        if (!check) return void notes.push(`${label(m)}check unavailable, look yourself`);
-        anyCheck = true;
-        const ok = checkPassed(check);
-        allOk &&= ok;
-        notes.push(`${label(m)}${ok ? 'looks right' : check.correction.trim() || 'something differs from the original'}`);
-      });
     }
 
     const file = await writeFileIn(`runs/${runId}/pages/${String(index).padStart(2, '0')}-${Date.now().toString(36)}.jpg`, await toJpeg(art));
@@ -449,7 +400,6 @@ async function drawPage(runId: string, index: number): Promise<void> {
         ms: Date.now() - started,
         ...(together ? { together: true } : {}),
         ...(fix ? { fix: fixFor && multi ? `${members.find((m) => m.character.id === fixFor)?.character.label ?? ''}: ${fix}` : fix } : {}),
-        ...(anyCheck ? { check: { ok: allOk, note: notes.join(' · ') } } : {}),
       });
       step.selected = step.attempts.length - 1;
       step.status = 'done';

@@ -30,7 +30,6 @@ export function migrateBook(raw: Book): Book {
       keepOutsideBox: old.keepOutsideBox !== false,
       textHalo: !!old.textHalo,
       ...(old.closeUp === false ? { closeUp: false } : {}),
-      ...(old.autoCheck === false ? { autoCheck: false } : {}),
     },
     pages: raw.pages.map((page) => {
       const p = page as unknown as Legacy;

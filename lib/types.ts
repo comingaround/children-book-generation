@@ -90,8 +90,6 @@ export interface BookSettings {
   textHalo: boolean;
   /** Send the model a close-up around the box instead of the whole page (default on). */
   closeUp?: boolean;
-  /** Check each character with the text model and redraw once if it went wrong (default on). */
-  autoCheck?: boolean;
 }
 
 export interface Book {
@@ -126,12 +124,8 @@ export interface Attempt {
   ms: number;
   /** The short correction this version was made with, if any. */
   fix?: string;
-  /** True when `fix` came from the automatic check rather than from a person (older runs). */
-  auto?: boolean;
   /** Made with every character in one image call. */
   together?: boolean;
-  /** What the automatic check said about this version. */
-  check?: { ok: boolean; note: string };
 }
 
 /** Longest correction accepted with a Regenerate: enough for "facing away from us, like the original". */

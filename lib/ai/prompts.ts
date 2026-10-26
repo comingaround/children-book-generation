@@ -119,57 +119,6 @@ export function pagePromptTogether(
     .join('\n');
 }
 
-// ---- automatic check after each character (cheap text model) -------------------------
-
-export interface PageCheck {
-  samePose: boolean;
-  sameClothing: boolean;
-  sameStyle: boolean;
-  looksLikePerson: boolean;
-  restUnchanged: boolean;
-  /** A short instruction for the next attempt; empty when all is well. */
-  correction: string;
-}
-
-export const pageCheckSchema = {
-  type: 'OBJECT',
-  properties: {
-    samePose: { type: 'BOOLEAN' },
-    sameClothing: { type: 'BOOLEAN' },
-    sameStyle: { type: 'BOOLEAN' },
-    looksLikePerson: { type: 'BOOLEAN' },
-    restUnchanged: { type: 'BOOLEAN' },
-    correction: { type: 'STRING' },
-  },
-  required: ['samePose', 'sameClothing', 'sameStyle', 'looksLikePerson', 'restUnchanged', 'correction'],
-};
-
-export const checkPassed = (c: PageCheck) => c.samePose && c.sameClothing && c.sameStyle && c.looksLikePerson && c.restUnchanged;
-
-/** Images: 1 = original (area around the character), 2 = the result, same area; 3 = the person's head as drawn. */
-export function pageCheckPrompt(book: Book, page: Page, character: BookCharacter, alsoChanged: BookCharacter[] = []): string {
-  const cast = castOn(page, character.id);
-  const clothing = clothingOn(character, page);
-  const pose = cast.pose.trim();
-  const others = alsoChanged.map((c) => castOn(page, c.id).hint.trim() || c.label);
-  return [
-    `Image 1 is part of an original page from the picture book "${book.title}". Image 2 is the same part after one character (${cast.hint.trim() || character.description.trim() || character.label}) was redrawn as a different person, whose head is shown in image 3.`,
-    'The redraw should change ONLY that character\'s face, hair (colour, length and style), skin tone, facial hair and glasses, to match image 3.',
-    others.length
-      ? `Also redrawn on purpose in the same image, as other people: ${others.join('; ')}. Ignore every change to them; judge only the character above, and leave them out of restUnchanged.`
-      : '',
-    'Compare image 2 with image 1 and answer in JSON:',
-    `- samePose: same pose and direction as in image 1${pose ? ` (${pose})` : ''}? Which way they face (face, back, profile), where they look, body position, gestures and expression must match. Small drawing differences are fine.`,
-    `- sameClothing: same garments and colours as in image 1${clothing ? ` (${clothing})` : ''}?`,
-    '- sameStyle: is the redrawn character in the same art style as the rest of image 2 (line weight, colouring, shading, texture), rather than looking pasted in or drawn by someone else?',
-    '- looksLikePerson: do their face, hair and skin tone match image 3, rather than the original character?',
-    '- restUnchanged: are the other characters, objects and background the same as in image 1?',
-    '- correction: if anything above is false, ONE short instruction (under 100 characters) for the illustrator to fix it, naming what to match, e.g. "back to the viewer, like the original" or "softer watercolour shading like the rest of the page". Say "the original", never "image 1/2/3". Empty if everything is true.',
-  ]
-    .filter(Boolean)
-    .join('\n');
-}
-
 // ---- "Prepare with AI" (cheap text model) -------------------------------------------
 
 export interface CastDraft {

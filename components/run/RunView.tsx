@@ -246,11 +246,6 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
               <li key={page.index} className={cx(styles.pageCard, book.pageWidth > book.pageHeight && styles.pageCardWide)}>
                 <div className={styles.pageHead}>
                   <strong>{label}</strong>
-                  {shown?.check && step.status === 'done' && (
-                    <span className={cx(ui.chip, shown.check.ok ? ui.sage : ui.peach)} title={shown.check.note}>
-                      {shown.check.ok ? 'Checked' : 'Check failed'}
-                    </span>
-                  )}
                   <StepChip step={step} />
                   {step.attempts.at(-1) && <span className={styles.time}>{seconds(step.attempts.at(-1)!.ms)}</span>}
                 </div>
@@ -284,13 +279,7 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
 
                 {file && shown?.fix && (
                   <p className={cx(ui.help, styles.madeWith)}>
-                    {shown.auto ? 'Auto-fixed after the check' : 'Made with'}: “{shown.fix}”
-                  </p>
-                )}
-                {file && shown?.check && !shown.check.ok && step.status === 'done' && (
-                  <p className={cx(ui.notice, ui.noticeError)}>
-                    <span className={ui.dot} />
-                    The check still sees a problem: {shown.check.note.replace(/\.$/, '')}. Type a fix below or pick another version.
+                    Made with: “{shown.fix}”
                   </p>
                 )}
 
@@ -337,7 +326,7 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
                           className={cx(styles.version, (step.selected ?? step.attempts.length - 1) === i && styles.versionOn)}
                           onClick={() => act(`/api/runs/${run.id}/pages/${page.index}`, { action: 'select', attempt: i })}
                           aria-pressed={(step.selected ?? step.attempts.length - 1) === i}
-                          title={[`Version ${i + 1}`, a.together && 'all at once', a.fix && `${a.auto ? 'auto-fix' : 'fix'}: “${a.fix}”`, a.check && `check: ${a.check.note}`].filter(Boolean).join(' · ')}
+                          title={[`Version ${i + 1}`, a.together && 'all at once', a.fix && `fix: “${a.fix}”`].filter(Boolean).join(' · ')}
                         >
                           {i + 1}
                         </button>
