@@ -42,8 +42,8 @@ interface Props {
   page: Page;
   /** Art to show instead of the imported illustration (a generated attempt). */
   art?: string | null;
-  /** Swap the hero's name in the text for this one. */
-  name?: string | null;
+  /** Name swaps for the page text: [name in the book, person's name]. */
+  names?: [string, string][];
   showText?: boolean;
   /** Rendered over the illustration only, in its own coordinates (the box editor). */
   overlay?: ReactNode;
@@ -51,7 +51,7 @@ interface Props {
 }
 
 /** A page rebuilt like the PDF: the illustration where it sat, the text lines on top. */
-export function BookPage({ book, page, art, name, showText = true, overlay, className }: Props) {
+export function BookPage({ book, page, art, names = [], showText = true, overlay, className }: Props) {
   const [x0, y0, x1, y1] = page.imageRect;
   const root = useRef<HTMLDivElement>(null);
 
@@ -90,7 +90,7 @@ export function BookPage({ book, page, art, name, showText = true, overlay, clas
       {showText &&
         page.lines.map((line, i) => (
           <span key={i} data-line={i} className={cx(styles.line, book.settings.textHalo && styles.halo)} style={lineStyle(book, line)}>
-            {name ? swapName(line.text, book.settings.protagonistName, name) : line.text}
+            {names.reduce((text, [from, to]) => swapName(text, from, to), line.text)}
           </span>
         ))}
     </div>

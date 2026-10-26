@@ -4,18 +4,32 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Fragment, useEffect, useRef, useState } from 'react';
 
-import type { BookDraft, PageDraft } from '@/lib/ai/prompts';
+import type { BookDraft, CastDraft } from '@/lib/ai/prompts';
 import { api, cx } from '@/lib/client';
-import { fileUrl, pageState, type Book, type BookSettings, type Box, type Page, type PageKind } from '@/lib/types';
+import {
+  castOn,
+  fileUrl,
+  GENDERS,
+  pageState,
+  presentOn,
+  type Book,
+  type BookCharacter,
+  type BookSettings,
+  type Box,
+  type Page,
+  type PageCast,
+  type PageKind,
+} from '@/lib/types';
 
 import { BookFonts, BookPage } from '../BookPage';
 import { GrowField } from '../GrowField';
-import { BackIcon, SparkIcon, TrashIcon } from '../icons';
+import { BackIcon, PlusIcon, SparkIcon, TrashIcon } from '../icons';
 import ui from '../ui.module.css';
 import { BoxEditor } from './BoxEditor';
 import styles from './BookEditor.module.css';
 
 type SaveState = 'saved' | 'saving' | 'error';
+type Tab = 'characters' | 'scene';
 
 const DOT: Record<ReturnType<typeof pageState>, string> = {
   ready: ui.dotOk,
@@ -26,16 +40,40 @@ const DOT: Record<ReturnType<typeof pageState>, string> = {
 
 const STATE_LABEL: Record<ReturnType<typeof pageState>, string> = {
   ready: 'Ready',
-  needsBox: 'Main character needs a box',
-  noHero: 'No main character, kept as is',
+  needsBox: 'A character needs a box',
+  noHero: 'No characters, kept as is',
   skip: 'Skipped',
 };
+
+const blankCharacter = (id: string): BookCharacter => ({ id, label: 'New character', nameInText: '', gender: 'girl', description: '', clothing: '' });
+
+const nextId = (characters: BookCharacter[]) => `c${Math.max(0, ...characters.map((c) => Number(c.id.slice(1)) || 0)) + 1}`;
+
+const same = (a: string, b: string) => !!a.trim() && a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/**
+ * Merges found characters into the cast: a match (same name or label) gets its empty fields
+ * filled, anyone new is added. Nothing typed by hand is overwritten.
+ */
+function mergeCharacters(current: BookCharacter[], found: BookDraft['characters']): BookCharacter[] {
+  const result = current.map((c) => ({ ...c }));
+  for (const f of found) {
+    const match = result.find((c) => same(c.nameInText, f.nameInText) || same(c.label, f.label) || same(c.label, f.nameInText));
+    if (match) {
+      for (const key of ['label', 'nameInText', 'description', 'clothing'] as const) if (!match[key].trim()) match[key] = f[key];
+    } else {
+      result.push({ ...f, id: nextId(result) });
+    }
+  }
+  return result;
+}
 
 export function BookEditor({ initial }: { initial: Book }) {
   const router = useRouter();
   const [book, setBook] = useState(initial);
   const [current, setCurrent] = useState(initial.pages.find((p) => p.kind !== 'skip')?.index ?? 1);
-  const [tab, setTab] = useState<'page' | 'book'>(initial.settings.protagonistName ? 'page' : 'book');
+  const [tab, setTab] = useState<Tab>('characters');
+  const [active, setActive] = useState(initial.characters[0]?.id ?? '');
   const [showText, setShowText] = useState(true);
   const [save, setSave] = useState<SaveState>('saved');
   const [busy, setBusy] = useState<string | null>(null);
@@ -44,8 +82,10 @@ export function BookEditor({ initial }: { initial: Book }) {
   const dirty = useRef(false);
 
   const page = book.pages.find((p) => p.index === current) ?? book.pages[0];
-  const heroPages = book.pages.filter((p) => ['ready', 'needsBox'].includes(pageState(p)));
-  const ready = heroPages.filter((p) => p.box).length;
+  const character = book.characters.find((c) => c.id === active) ?? book.characters[0] ?? null;
+  const cast = character ? castOn(page, character.id) : null;
+  const castPages = book.pages.filter((p) => ['ready', 'needsBox'].includes(pageState(book, p)));
+  const ready = castPages.filter((p) => pageState(book, p) === 'ready').length;
 
   // Autosave 600 ms after the last change.
   useEffect(() => {
@@ -53,7 +93,10 @@ export function BookEditor({ initial }: { initial: Book }) {
     const timer = setTimeout(async () => {
       setSave('saving');
       try {
-        await api(`/api/books/${book.id}`, { method: 'PUT', json: { title: book.title, settings: book.settings, pages: book.pages } });
+        await api(`/api/books/${book.id}`, {
+          method: 'PUT',
+          json: { title: book.title, characters: book.characters, settings: book.settings, pages: book.pages },
+        });
         setSave('saved');
       } catch {
         setSave('error');
@@ -83,32 +126,72 @@ export function BookEditor({ initial }: { initial: Book }) {
   }
   const setPage = (index: number, patch: Partial<Page>) =>
     change((b) => ({ ...b, pages: b.pages.map((p) => (p.index === index ? { ...p, ...patch } : p)) }));
+  const setCast = (index: number, id: string, patch: Partial<PageCast>) =>
+    change((b) => ({
+      ...b,
+      pages: b.pages.map((p) => (p.index === index ? { ...p, cast: { ...p.cast, [id]: { ...castOn(p, id), ...patch } } } : p)),
+    }));
+  const setCharacter = (id: string, patch: Partial<BookCharacter>) =>
+    change((b) => ({ ...b, characters: b.characters.map((c) => (c.id === id ? { ...c, ...patch } : c)) }));
   const setSettings = (patch: Partial<BookSettings>) => change((b) => ({ ...b, settings: { ...b.settings, ...patch } }));
 
-  /** `onlyEmpty` keeps whatever is already filled in and adds only the missing fields. */
-  async function draftBook(onlyEmpty = false): Promise<BookSettings> {
-    const draft = await api<BookDraft>(`/api/books/${book.id}/draft`, { method: 'POST', json: {} });
-    const current = book.settings as unknown as Record<string, unknown>;
-    const patch = onlyEmpty ? Object.fromEntries(Object.entries(draft).filter(([k]) => !current[k])) : draft;
-    setSettings(patch);
-    return { ...book.settings, ...patch };
+  function addCharacter() {
+    const id = nextId(book.characters);
+    change((b) => ({ ...b, characters: [...b.characters, blankCharacter(id)] }));
+    setActive(id);
+    setTab('characters');
   }
 
-  /** Sends the settings on screen, so a name typed a moment ago is used before autosave runs. */
-  async function draftPage(target: Page, settings = book.settings) {
-    const draft = await api<Omit<PageDraft, 'box'> & { box: Box | null }>(`/api/books/${book.id}/draft`, {
+  function removeCharacter(target: BookCharacter) {
+    if (!window.confirm(`Remove ${target.label} from this book? Their boxes and notes on every page go too.`)) return;
+    change((b) => ({
+      ...b,
+      characters: b.characters.filter((c) => c.id !== target.id),
+      pages: b.pages.map((p) => {
+        const rest = { ...p.cast };
+        delete rest[target.id];
+        return { ...p, cast: rest };
+      }),
+    }));
+    setActive(book.characters.find((c) => c.id !== target.id)?.id ?? '');
+  }
+
+  /** Finds the book's characters and art style; merges them in without overwriting edits. */
+  async function findCharacters(): Promise<{ characters: BookCharacter[]; settings: BookSettings }> {
+    const draft = await api<BookDraft>(`/api/books/${book.id}/draft`, { method: 'POST', json: {} });
+    const characters = mergeCharacters(book.characters, draft.characters);
+    const settings = book.settings.artStyle.trim() ? book.settings : { ...book.settings, artStyle: draft.artStyle };
+    change((b) => ({ ...b, characters, settings }));
+    if (!active && characters[0]) setActive(characters[0].id);
+    return { characters, settings };
+  }
+
+  /**
+   * Every character on one page, plus the scene. Never replaces a box drawn by hand.
+   * `onlyMissing` (Prepare all) fills only characters and fields not set yet, so edits survive.
+   */
+  async function draftPage(target: Page, characters = book.characters, settings = book.settings, onlyMissing = false) {
+    const draft = await api<{ scenePrompt: string; cast: (Omit<CastDraft, 'box'> & { box: Box | null })[] }>(`/api/books/${book.id}/draft`, {
       method: 'POST',
-      json: { index: target.index, settings },
+      json: { index: target.index, characters, settings },
     });
-    setPage(target.index, {
-      hasProtagonist: draft.hasProtagonist,
-      characterHint: draft.characterHint,
-      pose: draft.pose,
-      clothing: draft.clothingDiffers ? draft.clothing : '',
-      scenePrompt: draft.scenePrompt,
-      // Never replace a box someone drew by hand.
-      ...(draft.box && !target.box ? { box: draft.box } : {}),
-    });
+    change((b) => ({
+      ...b,
+      pages: b.pages.map((p) => {
+        if (p.index !== target.index) return p;
+        const nextCast = { ...p.cast };
+        for (const d of draft.cast) {
+          const old = p.cast[d.id];
+          const found = { present: d.present, hint: d.hint, pose: d.pose, clothing: d.clothingDiffers ? d.clothing : '', box: d.box };
+          nextCast[d.id] =
+            onlyMissing && old
+              ? { present: old.present, hint: old.hint || found.hint, pose: old.pose || found.pose, clothing: old.clothing, box: old.box ?? found.box }
+              : { ...found, box: old?.box ?? found.box };
+        }
+        const scenePrompt = onlyMissing ? p.scenePrompt || draft.scenePrompt : draft.scenePrompt || p.scenePrompt;
+        return { ...p, scenePrompt, cast: nextCast };
+      }),
+    }));
   }
 
   async function withBusy(label: string, task: () => Promise<void>) {
@@ -123,20 +206,26 @@ export function BookEditor({ initial }: { initial: Book }) {
     }
   }
 
-  /** Book settings first (the page prompts use the hero's name), then every unprepared page. */
-  const draftAll = () =>
+  /** Characters first (page drafts need them), then every page that isn't prepared yet. */
+  const prepareAll = () =>
     withBusy('all', async () => {
       try {
+        let characters = book.characters;
         let settings = book.settings;
-        if (!settings.protagonistName || !settings.clothing) {
-          setProgress('Reading the book…');
-          settings = await draftBook(true);
+        if (!characters.length || !settings.artStyle.trim()) {
+          setProgress('Finding the characters…');
+          ({ characters, settings } = await findCharacters());
         }
-        const todo = book.pages.filter((p) => p.kind !== 'skip' && (!p.box || !p.scenePrompt || (p.hasProtagonist && !p.pose)));
+        const todo = book.pages.filter((p) => {
+          if (p.kind === 'skip') return false;
+          const present = characters.filter((c) => p.cast[c.id]?.present);
+          const unknown = characters.some((c) => !p.cast[c.id]);
+          return !p.scenePrompt || unknown || present.some((c) => !p.cast[c.id].box || !p.cast[c.id].pose);
+        });
         for (const [i, p] of todo.entries()) {
-          setProgress(`Drafting page ${i + 1} of ${todo.length}…`);
+          setProgress(`Page ${i + 1} of ${todo.length}…`);
           setCurrent(p.index);
-          await draftPage(p, settings);
+          await draftPage(p, characters, settings, true);
         }
       } finally {
         setProgress(null);
@@ -151,7 +240,11 @@ export function BookEditor({ initial }: { initial: Book }) {
     });
   }
 
-  const name = book.settings.protagonistName.trim();
+  const names = book.characters.map((c) => c.nameInText.trim()).filter(Boolean);
+  const editable = page.kind !== 'skip' && !!character && !!cast?.present;
+  const others = presentOn(book, page)
+    .filter((c) => c.id !== character?.id && page.cast[c.id].box)
+    .map((c) => ({ label: c.label, box: page.cast[c.id].box! }));
 
   return (
     <main className={styles.layout}>
@@ -162,23 +255,18 @@ export function BookEditor({ initial }: { initial: Book }) {
           <BackIcon />
           Library
         </Link>
-        <input
-          className={styles.title}
-          value={book.title}
-          onChange={(e) => change((b) => ({ ...b, title: e.target.value }))}
-          aria-label="Book title"
-        />
-        <span className={cx(ui.chip, ready === heroPages.length ? ui.sage : ui.peach)}>
-          {ready}/{heroPages.length} main-character pages ready
+        <input className={styles.title} value={book.title} onChange={(e) => change((b) => ({ ...b, title: e.target.value }))} aria-label="Book title" />
+        <span className={cx(ui.chip, castPages.length && ready === castPages.length ? ui.sage : ui.peach)}>
+          {ready}/{castPages.length} pages ready
         </span>
         <span className={styles.save} aria-live="polite">
           {save === 'saving' ? 'Saving…' : save === 'error' ? 'Not saved — retrying on next change' : 'Saved'}
         </span>
         <button
           className={cx(ui.btn, ui.secondary)}
-          onClick={draftAll}
+          onClick={prepareAll}
           disabled={!!busy}
-          title="AI reads the whole book: finds the main character's name, look and the art style, then on every page draws the box around the main character and writes the scene. You check and correct it."
+          title="AI reads the whole book: finds the characters and the art style, then on every page finds each character, draws their box and writes their pose and the scene. You check and correct it."
         >
           {busy === 'all' ? <span className={ui.spinner} /> : <SparkIcon />}
           {busy === 'all' ? (progress ?? 'Working…') : 'Prepare all pages with AI'}
@@ -195,7 +283,7 @@ export function BookEditor({ initial }: { initial: Book }) {
       <div className={styles.columns}>
         <nav className={styles.strip} aria-label="Pages">
           {book.pages.map((p) => {
-            const state = pageState(p);
+            const state = pageState(book, p);
             return (
               <button
                 key={p.index}
@@ -217,12 +305,10 @@ export function BookEditor({ initial }: { initial: Book }) {
 
         <section className={styles.canvas}>
           <div className={styles.canvasBar}>
-            <span className={cx(ui.chip, page.kind === 'skip' ? '' : pageState(page) === 'ready' ? ui.sage : pageState(page) === 'needsBox' ? ui.peach : ui.sky)}>
-              {STATE_LABEL[pageState(page)]}
+            <span className={cx(ui.chip, { ready: ui.sage, needsBox: ui.peach, noHero: ui.sky, skip: '' }[pageState(book, page)])}>
+              {STATE_LABEL[pageState(book, page)]}
             </span>
-            <span className={ui.muted}>
-              {page.hasProtagonist && page.kind !== 'skip' ? 'Drag on the picture to draw a box around the main character' : ''}
-            </span>
+            <span className={ui.muted}>{editable ? `Drag on the picture to draw a box around ${character!.label}` : ''}</span>
             <label className={cx(ui.switchRow, styles.textToggle)}>
               <span>Show text</span>
               <input type="checkbox" className={ui.switch} checked={showText} onChange={(e) => setShowText(e.target.checked)} />
@@ -235,25 +321,178 @@ export function BookEditor({ initial }: { initial: Book }) {
               showText={showText}
               className={cx(styles.pageView, book.pageWidth > book.pageHeight ? styles.pageWide : styles.pageTall)}
               overlay={
-                page.hasProtagonist && page.kind !== 'skip' ? <BoxEditor box={page.box} onChange={(box) => setPage(page.index, { box })} /> : null
+                editable ? (
+                  <BoxEditor
+                    box={cast!.box}
+                    label={character!.label}
+                    others={others}
+                    onChange={(box) => setCast(page.index, character!.id, { box })}
+                  />
+                ) : null
               }
             />
           </div>
         </section>
 
         <aside className={styles.inspector}>
-          <div className={ui.segmented} role="group" aria-label="Settings for">
-            <button className={ui.segment} aria-pressed={tab === 'page'} onClick={() => setTab('page')}>
-              {page.kind === 'cover' ? 'Cover' : `Page ${page.index}`}
+          <div className={ui.segmented} role="group" aria-label="Settings">
+            <button className={ui.segment} aria-pressed={tab === 'characters'} onClick={() => setTab('characters')}>
+              Characters
             </button>
-            <button className={ui.segment} aria-pressed={tab === 'book'} onClick={() => setTab('book')}>
-              Book settings
+            <button className={ui.segment} aria-pressed={tab === 'scene'} onClick={() => setTab('scene')}>
+              Scene &amp; style
             </button>
           </div>
 
-          {tab === 'page' ? (
+          {tab === 'characters' ? (
+            <div className={ui.panel}>
+              {/* The book's cast */}
+              <div className={ui.section}>
+                <div className={styles.sectionHead}>
+                  <span className={ui.eyebrow}>The book&apos;s characters</span>
+                  <button className={cx(ui.btn, ui.secondary, ui.small)} onClick={() => withBusy('find', async () => void (await findCharacters()))} disabled={!!busy}>
+                    {busy === 'find' ? <span className={ui.spinner} /> : <SparkIcon />}
+                    Find with AI
+                  </button>
+                </div>
+                <span className={ui.help}>
+                  Everyone who can be replaced by a real person: the main character, parents, friends. Each gets the person&apos;s face, hair and skin tone and keeps their
+                  clothing and pose. <strong>Find with AI</strong> reads the book and adds who it finds.
+                </span>
+                <div className={styles.castPills} role="group" aria-label="Characters">
+                  {book.characters.map((c) => (
+                    <button key={c.id} className={cx(styles.castPill, c.id === character?.id && styles.castPillOn)} onClick={() => setActive(c.id)} aria-pressed={c.id === character?.id}>
+                      {c.label}
+                      {page.cast[c.id]?.present && <span className={cx(ui.dot, page.cast[c.id].box ? ui.dotOk : ui.dotWarn)} title="On this page" />}
+                    </button>
+                  ))}
+                  <button className={styles.castPill} onClick={addCharacter}>
+                    <PlusIcon />
+                    Add
+                  </button>
+                </div>
+              </div>
+
+              {character ? (
+                <>
+                  <div className={ui.section}>
+                    <div className={styles.pair}>
+                      <label className={ui.field}>
+                        <span className={ui.label}>Called in the editor</span>
+                        <input className={ui.input} value={character.label} onChange={(e) => setCharacter(character.id, { label: e.target.value })} placeholder="Mommy" />
+                      </label>
+                      <label className={ui.field}>
+                        <span className={ui.label}>Name in the text</span>
+                        <input
+                          className={ui.input}
+                          value={character.nameInText}
+                          onChange={(e) => setCharacter(character.id, { nameInText: e.target.value })}
+                          placeholder="none"
+                        />
+                      </label>
+                    </div>
+                    <div className={ui.field}>
+                      <span className={ui.label}>Gender</span>
+                      <div className={ui.segmented} role="group" aria-label={`${character.label}'s gender`}>
+                        {GENDERS.map((g) => (
+                          <button key={g.value} className={ui.segment} aria-pressed={character.gender === g.value} onClick={() => setCharacter(character.id, { gender: g.value })}>
+                            {g.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className={styles.changes}>
+                      <span className={ui.label}>Changes to the person</span>
+                      <span>Face, hair colour and style, skin tone, facial hair and glasses, taken from their photo.</span>
+                    </div>
+                    <label className={ui.field}>
+                      <span className={ui.label}>How to recognise them in the book</span>
+                      <GrowField
+                        value={character.description}
+                        onChange={(v) => setCharacter(character.id, { description: v })}
+                        placeholder="a woman in her thirties with short red hair"
+                      />
+                      <span className={ui.help}>Age, build and hair of the original character; leave clothing out.</span>
+                    </label>
+                    <label className={ui.field}>
+                      <span className={ui.label}>Clothing (kept)</span>
+                      <GrowField value={character.clothing} onChange={(v) => setCharacter(character.id, { clothing: v })} placeholder="turquoise blouse, lilac skirt" />
+                      <span className={ui.help}>Their usual outfit. The person wears exactly this; a page can override it.</span>
+                    </label>
+                    <button className={cx(ui.btn, ui.ghost, ui.small, styles.removeBtn)} onClick={() => removeCharacter(character)}>
+                      <TrashIcon />
+                      Remove {character.label}
+                    </button>
+                  </div>
+
+                  {page.kind !== 'skip' && (
+                    <div className={ui.section}>
+                      <div className={styles.sectionHead}>
+                        <span className={ui.eyebrow}>
+                          {character.label} on {page.kind === 'cover' ? 'the cover' : `page ${page.index}`}
+                        </span>
+                        <button className={cx(ui.btn, ui.secondary, ui.small)} onClick={() => withBusy(`page${page.index}`, () => draftPage(page))} disabled={!!busy}>
+                          {busy === `page${page.index}` ? <span className={ui.spinner} /> : <SparkIcon />}
+                          Find on this page
+                        </button>
+                      </div>
+                      <label className={ui.switchRow}>
+                        <span className={styles.switchText}>
+                          {character.label} is on this page
+                          <span className={ui.help}>Find on this page checks every character at once and draws their boxes</span>
+                        </span>
+                        <input type="checkbox" className={ui.switch} checked={!!cast?.present} onChange={(e) => setCast(page.index, character.id, { present: e.target.checked })} />
+                      </label>
+                      {cast?.present && (
+                        <>
+                          <label className={ui.field}>
+                            <span className={ui.label}>Which one is {character.label}</span>
+                            <GrowField rows={1} value={cast.hint} onChange={(v) => setCast(page.index, character.id, { hint: v })} placeholder="the woman in the turquoise blouse, right" />
+                          </label>
+                          <label className={ui.field}>
+                            <span className={ui.label}>Pose and direction (kept)</span>
+                            <GrowField value={cast.pose} onChange={(v) => setCast(page.index, character.id, { pose: v })} placeholder="three-quarter view facing left, smiling down at the girl" />
+                          </label>
+                          <label className={ui.field}>
+                            <span className={ui.label}>Clothing on this page (kept)</span>
+                            <GrowField
+                              rows={1}
+                              value={cast.clothing}
+                              onChange={(v) => setCast(page.index, character.id, { clothing: v })}
+                              placeholder={character.clothing ? `Usual: ${character.clothing}` : 'Their usual outfit'}
+                            />
+                          </label>
+                          <div className={styles.boxRow}>
+                            <span className={ui.label}>Box</span>
+                            {cast.box ? (
+                              <>
+                                <span className={styles.boxNumbers}>
+                                  {Math.round(cast.box.x)}%, {Math.round(cast.box.y)}% · {Math.round(cast.box.w)} × {Math.round(cast.box.h)}%
+                                </span>
+                                <button className={cx(ui.btn, ui.ghost, ui.small)} onClick={() => setCast(page.index, character.id, { box: null })}>
+                                  Clear
+                                </button>
+                              </>
+                            ) : (
+                              <span className={styles.boxMissing}>Not drawn yet</span>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className={styles.emptyCast}>
+                  <p>No characters yet.</p>
+                  <span className={ui.help}>Use Find with AI above, or add one by hand.</span>
+                </div>
+              )}
+            </div>
+          ) : (
             <div className={ui.panel}>
               <div className={ui.section}>
+                <span className={ui.eyebrow}>{page.kind === 'cover' ? 'Cover' : `Page ${page.index}`}</span>
                 <div className={ui.field}>
                   <span className={ui.label}>Page type</span>
                   <div className={ui.segmented} role="group" aria-label="Page type">
@@ -266,198 +505,65 @@ export function BookEditor({ initial }: { initial: Book }) {
                   <span className={ui.help}>Skipped pages (ads, promo, back cover) are left out of the book.</span>
                 </div>
                 {page.kind !== 'skip' && (
-                  <label className={ui.switchRow}>
-                    <span className={styles.switchText}>
-                      The main character is on this page
-                      <span className={ui.help}>Turn off for pages without them; those pages stay exactly as they are</span>
-                    </span>
-                    <input
-                      type="checkbox"
-                      className={ui.switch}
-                      checked={page.hasProtagonist}
-                      onChange={(e) => setPage(page.index, { hasProtagonist: e.target.checked })}
-                    />
-                  </label>
-                )}
-              </div>
-
-              {page.kind !== 'skip' && page.hasProtagonist && (
-                <div className={ui.section}>
-                  <div className={styles.sectionHead}>
-                    <span className={ui.eyebrow}>Main character on this page</span>
-                    <button className={cx(ui.btn, ui.secondary, ui.small)} onClick={() => withBusy(`page${page.index}`, () => draftPage(page))} disabled={!!busy}>
-                      {busy === `page${page.index}` ? <span className={ui.spinner} /> : <SparkIcon />}
-                      Find with AI
-                    </button>
-                  </div>
-                  <span className={ui.help}>
-                    The main character is the one replaced by the child: they get the child&apos;s face, hair and skin tone, and keep their clothing and pose.{' '}
-                    <strong>Find with AI</strong> looks at this page, draws the box and fills in the fields below; check and correct it.
-                  </span>
-                  <label className={ui.field}>
-                    <span className={ui.label}>Which one is the main character</span>
-                    <GrowField
-                      rows={1}
-                      value={page.characterHint}
-                      onChange={(v) => setPage(page.index, { characterHint: v })}
-                      placeholder="the boy in the yellow T-shirt on the tricycle, left"
-                    />
-                  </label>
-                  <label className={ui.field}>
-                    <span className={ui.label}>Pose and direction (kept)</span>
-                    <GrowField
-                      value={page.pose ?? ''}
-                      onChange={(v) => setPage(page.index, { pose: v })}
-                      placeholder="standing, back to the viewer, looking left at the old trike, arms down"
-                    />
-                    <span className={ui.help}>Which way they face, where they look, what the hands do.</span>
-                  </label>
-                  <label className={ui.field}>
-                    <span className={ui.label}>Clothing on this page (kept)</span>
-                    <GrowField
-                      rows={1}
-                      value={page.clothing ?? ''}
-                      onChange={(v) => setPage(page.index, { clothing: v })}
-                      placeholder={book.settings.clothing ? `Same as the book: ${book.settings.clothing}` : 'Same as the book'}
-                    />
-                    <span className={ui.help}>Leave empty when it&apos;s their usual outfit; fill in when this page differs (pyjamas, a coat…).</span>
-                  </label>
                   <label className={ui.field}>
                     <span className={ui.label}>Scene</span>
                     <GrowField
                       value={page.scenePrompt}
                       onChange={(v) => setPage(page.index, { scenePrompt: v })}
-                      placeholder="Where we are, what the main character is doing, who else is there."
+                      placeholder="Where we are, who is there and what they are doing."
                     />
                   </label>
-                  <div className={styles.boxRow}>
-                    <span className={ui.label}>Box</span>
-                    {page.box ? (
-                      <>
-                        <span className={styles.boxNumbers}>
-                          {Math.round(page.box.x)}%, {Math.round(page.box.y)}% · {Math.round(page.box.w)} × {Math.round(page.box.h)}%
-                        </span>
-                        <button className={cx(ui.btn, ui.ghost, ui.small)} onClick={() => setPage(page.index, { box: null })}>
-                          Clear
-                        </button>
-                      </>
-                    ) : (
-                      <span className={styles.boxMissing}>Not drawn yet</span>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {page.lines.length > 0 && (
-                <div className={ui.section}>
-                  <span className={ui.eyebrow}>Page text</span>
-                  <p className={styles.pageText}>
-                    {page.lines.map((l, i) => (
-                      <Fragment key={i}>
-                        {highlight(l.text, name)}
-                        {i < page.lines.length - 1 ? ' ' : ''}
-                      </Fragment>
-                    ))}
-                  </p>
-                  <span className={ui.help}>
-                    {name ? `"${name}" is replaced with the child's name.` : "Set the main character's name in Book settings to swap it for the child's."}
-                  </span>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className={ui.panel}>
-              <div className={ui.section}>
-                <div className={styles.sectionHead}>
-                  <span className={ui.eyebrow}>Main character</span>
-                  <button className={cx(ui.btn, ui.secondary, ui.small)} onClick={() => withBusy('book', async () => void (await draftBook()))} disabled={!!busy}>
-                    {busy === 'book' ? <span className={ui.spinner} /> : <SparkIcon />}
-                    Fill in with AI
-                  </button>
-                </div>
-                <span className={ui.help}>
-                  The book&apos;s main character is the one replaced by the child. <strong>Fill in with AI</strong> reads the cover and the text to find their
-                  name, look, clothing and the art style.
-                </span>
-                <div className={styles.pair}>
-                  <label className={ui.field}>
-                    <span className={ui.label}>Name in the text</span>
-                    <input className={ui.input} value={book.settings.protagonistName} onChange={(e) => setSettings({ protagonistName: e.target.value })} placeholder="Ross" />
-                  </label>
+                )}
+                {page.lines.length > 0 && (
                   <div className={ui.field}>
-                    <span className={ui.label}>Gender</span>
-                    <div className={ui.segmented} role="group" aria-label="Main character gender">
-                      {(['boy', 'girl'] as const).map((g) => (
-                        <button key={g} className={ui.segment} aria-pressed={book.settings.protagonistGender === g} onClick={() => setSettings({ protagonistGender: g })}>
-                          {g === 'boy' ? 'Boy' : 'Girl'}
-                        </button>
+                    <span className={ui.label}>Page text</span>
+                    <p className={styles.pageText}>
+                      {page.lines.map((l, i) => (
+                        <Fragment key={i}>
+                          {highlight(l.text, names)}
+                          {i < page.lines.length - 1 ? ' ' : ''}
+                        </Fragment>
                       ))}
-                    </div>
+                    </p>
+                    <span className={ui.help}>
+                      {names.length ? 'Marked names are replaced with the people’s names.' : 'Set “Name in the text” on a character to swap it for the person’s name.'}
+                    </span>
                   </div>
-                </div>
-                <div className={styles.changes}>
-                  <span className={ui.label}>Changes to the child</span>
-                  <span>Face, hair colour and style, skin tone and glasses, taken from the child&apos;s photo.</span>
-                </div>
-                <label className={ui.field}>
-                  <span className={ui.label}>How to recognise them in the book</span>
-                  <GrowField
-                    value={book.settings.protagonistDescription}
-                    onChange={(v) => setSettings({ protagonistDescription: v })}
-                    placeholder="a 6-year-old boy with short brown hair"
-                  />
-                  <span className={ui.help}>Age, build and hair of the original character; leave clothing out.</span>
-                </label>
-                <label className={ui.field}>
-                  <span className={ui.label}>Clothing (kept)</span>
-                  <GrowField
-                    value={book.settings.clothing ?? ''}
-                    onChange={(v) => setSettings({ clothing: v })}
-                    placeholder="yellow T-shirt with red trim, blue jeans, red sneakers"
-                  />
-                  <span className={ui.help}>Their usual outfit. The child wears exactly this; a page can override it.</span>
-                </label>
-                <span className={ui.help}>Changing he/she in the text for a child of the other gender is not built yet.</span>
+                )}
               </div>
 
               <div className={ui.section}>
-                <span className={ui.eyebrow}>Style</span>
+                <span className={ui.eyebrow}>Art style</span>
                 <label className={ui.field}>
-                  <span className={ui.label}>Art style</span>
-                  <GrowField
-                    value={book.settings.artStyle}
-                    onChange={(v) => setSettings({ artStyle: v })}
-                    placeholder="soft watercolour with fine ink outlines and warm pastel washes"
-                  />
-                </label>
-                <label className={ui.switchRow}>
-                  <span className={styles.switchText}>
-                    Keep everything outside the box
-                    <span className={ui.help}>Only the main character&apos;s box is taken from the AI; the rest stays pixel-identical</span>
+                  <span className={ui.label}>How the book is drawn</span>
+                  <GrowField value={book.settings.artStyle} onChange={(v) => setSettings({ artStyle: v })} placeholder="soft watercolour with fine ink outlines and warm pastel washes" />
+                  <span className={ui.help}>
+                    Sent with every drawing so redrawn people match the book. Be specific about line weight, colouring and texture; the automatic check also compares the style.
                   </span>
-                  <input type="checkbox" className={ui.switch} checked={book.settings.keepOutsideBox} onChange={(e) => setSettings({ keepOutsideBox: e.target.checked })} />
                 </label>
-                <label className={ui.switchRow}>
-                  <span className={styles.switchText}>
-                    Edit a close-up around the box
-                    <span className={ui.help}>The AI gets only the area around the main character, enlarged: sharper faces on small figures, pose kept better</span>
-                  </span>
-                  <input type="checkbox" className={ui.switch} checked={book.settings.closeUp !== false} onChange={(e) => setSettings({ closeUp: e.target.checked })} />
-                </label>
-                <label className={ui.switchRow}>
-                  <span className={styles.switchText}>
-                    Check each page automatically
-                    <span className={ui.help}>AI compares each result with the original (pose, clothing, likeness) and redraws once if something is off</span>
-                  </span>
-                  <input type="checkbox" className={ui.switch} checked={book.settings.autoCheck !== false} onChange={(e) => setSettings({ autoCheck: e.target.checked })} />
-                </label>
-                <label className={ui.switchRow}>
-                  <span className={styles.switchText}>
-                    White outline on text
-                    <span className={ui.help}>For text set over busy pictures</span>
-                  </span>
-                  <input type="checkbox" className={ui.switch} checked={book.settings.textHalo} onChange={(e) => setSettings({ textHalo: e.target.checked })} />
-                </label>
+              </div>
+
+              <div className={ui.section}>
+                <span className={ui.eyebrow}>Generation</span>
+                <Toggle
+                  label="Keep everything outside the box"
+                  help="Only each character's box is taken from the AI; the rest stays pixel-identical"
+                  checked={book.settings.keepOutsideBox}
+                  onChange={(v) => setSettings({ keepOutsideBox: v })}
+                />
+                <Toggle
+                  label="Edit a close-up around the box"
+                  help="The AI gets only the area around each character, enlarged: sharper faces on small figures, pose kept better"
+                  checked={book.settings.closeUp !== false}
+                  onChange={(v) => setSettings({ closeUp: v })}
+                />
+                <Toggle
+                  label="Check each character automatically"
+                  help="AI compares each result with the original (pose, clothing, style, likeness) and redraws once if something is off"
+                  checked={book.settings.autoCheck !== false}
+                  onChange={(v) => setSettings({ autoCheck: v })}
+                />
+                <Toggle label="White outline on text" help="For text set over busy pictures" checked={book.settings.textHalo} onChange={(v) => setSettings({ textHalo: v })} />
               </div>
 
               <div className={ui.section}>
@@ -474,9 +580,22 @@ export function BookEditor({ initial }: { initial: Book }) {
   );
 }
 
-/** Marks the hero's name in the page text. */
-function highlight(text: string, name: string) {
-  if (!name) return text;
-  const parts = text.split(new RegExp(`(\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b)`, 'gi'));
+function Toggle({ label, help, checked, onChange }: { label: string; help: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className={ui.switchRow}>
+      <span className={styles.switchText}>
+        {label}
+        <span className={ui.help}>{help}</span>
+      </span>
+      <input type="checkbox" className={ui.switch} checked={checked} onChange={(e) => onChange(e.target.checked)} />
+    </label>
+  );
+}
+
+/** Marks the characters' names in the page text. */
+function highlight(text: string, names: string[]) {
+  if (!names.length) return text;
+  const pattern = names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  const parts = text.split(new RegExp(`(\\b(?:${pattern})\\b)`, 'gi'));
   return parts.map((part, i) => (i % 2 ? <mark key={i}>{part}</mark> : part));
 }

@@ -18,24 +18,26 @@ import {
   unpad,
   type Region,
 } from './images';
+import { getRun, newId, readDataFile, requireBook, requirePerson, requireRun, savePerson, saveRun, writeFileIn } from './store';
 import {
+  castOn,
   chosenFile,
-  getRun,
-  newId,
-  readDataFile,
-  requireBook,
-  requireChild,
-  requireRun,
-  saveChild,
-  saveRun,
-  writeFileIn,
-} from './store';
-import { FIX_MAX, type Book, type Child, type Page, type Run, type RunStep } from './types';
+  drawingKey,
+  FIX_MAX,
+  type Book,
+  type BookCharacter,
+  type CastStep,
+  type Page,
+  type Person,
+  type Run,
+  type RunStep,
+} from './types';
 
 /**
  * A run lives in the dev server's memory while it works and on disk in data/runs/<id>/run.json,
- * which the run page polls. Step 1 draws the character and stops for approval; step 2 makes
- * the pages, two at a time (Google's image capacity is the bottleneck, not our CPU).
+ * which the run page polls. Step 1 draws every assigned person in the book's style and stops
+ * for approval; step 2 makes the pages, two at a time (Google's image capacity is the
+ * bottleneck, not our CPU). On a page, each assigned character is replaced in turn.
  */
 
 const PAGE_CONCURRENCY = 2;
@@ -51,7 +53,7 @@ const locks = (g.runLocks ??= new Map());
 const workers = (g.runWorkers ??= new Map());
 const busyRetried = (g.busyRetried ??= new Set());
 
-/** Load, change and save a run with no other change in between (page workers run in parallel). */
+/** Load, change and save a run with no other change in between (workers run in parallel). */
 function mutate(runId: string, change: (run: Run) => void): Promise<Run> {
   const next = (locks.get(runId) ?? Promise.resolve()).then(async () => {
     const run = await requireRun(runId);
@@ -75,121 +77,164 @@ const pageOf = (book: Book, index: number): Page => {
   return page;
 };
 
+function characterOf(book: Book, id: string): BookCharacter {
+  const character = book.characters.find((c) => c.id === id);
+  if (!character) throw new HttpError(404, 'That character is no longer in the book');
+  return character;
+}
+
+function castStep(run: Run, characterId: string): CastStep {
+  const step = run.cast.find((c) => c.characterId === characterId);
+  if (!step) throw new HttpError(404, 'That character is not in this run');
+  return step;
+}
+
+/** Busy, waiting for review, or ready for pages, from the state of every cast drawing. */
+function castStatus(run: Run): Run['status'] {
+  if (run.cast.every((c) => c.approved)) return run.status === 'done' ? 'done' : 'pages';
+  return run.cast.every((c) => c.approved || c.status === 'done' || c.status === 'error') ? 'review' : 'character';
+}
+
 // ---- create ----------------------------------------------------------------------
 
-export async function createRun(bookId: string, childId: string, pageIndexes: number[], reuseCharacter: boolean): Promise<Run> {
+export interface Assignment {
+  characterId: string;
+  personId: string;
+}
+
+export async function createRun(bookId: string, assignments: Assignment[], pageIndexes: number[], reuseDrawings: boolean): Promise<Run> {
   const book = await requireBook(bookId);
-  const child = await requireChild(childId);
-  if (!child.photo) throw new HttpError(400, 'This child has no photo');
-  if (!pageIndexes.length) throw new HttpError(400, 'No pages with the hero to generate');
+  if (!assignments.length) throw new HttpError(400, 'Choose a person for at least one character');
+  if (!pageIndexes.length) throw new HttpError(400, 'None of these characters are on any page yet');
+  const people = await Promise.all(assignments.map((a) => requirePerson(a.personId)));
+  for (const [i, person] of people.entries()) {
+    characterOf(book, assignments[i].characterId);
+    if (!person.photo) throw new HttpError(400, `${person.name} has no photo`);
+  }
 
   const run: Run = {
     id: newId('run'),
     bookId,
-    childId,
     createdAt: new Date().toISOString(),
     status: 'character',
     pageIndexes,
-    character: { ...emptyStep('queued'), approved: false, reused: false },
+    cast: [],
     pages: Object.fromEntries(pageIndexes.map((i) => [String(i), emptyStep('waiting')])),
     images: 0,
   };
-
-  const saved = child.characters[book.id];
-  if (reuseCharacter && saved) {
-    const file = await writeFileIn(`runs/${run.id}/character-1.png`, await readDataFile(saved));
-    run.character = { status: 'done', attempts: [{ file, at: run.createdAt, ms: 0 }], selected: 0, message: null, approved: true, reused: true };
-    run.status = 'pages';
-    for (const step of Object.values(run.pages)) step.status = 'queued';
+  for (const [i, a] of assignments.entries()) {
+    const saved = reuseDrawings ? people[i].drawings[drawingKey(book.id, a.characterId)] : undefined;
+    if (saved) {
+      const file = await writeFileIn(`runs/${run.id}/cast-${a.characterId}-saved.png`, await readDataFile(saved));
+      run.cast.push({ ...a, status: 'done', attempts: [{ file, at: run.createdAt, ms: 0 }], selected: 0, message: null, approved: true, reused: true });
+    } else {
+      run.cast.push({ ...a, ...emptyStep('queued'), approved: false, reused: false });
+    }
   }
+  run.status = castStatus(run);
+  if (run.status === 'pages') for (const step of Object.values(run.pages)) step.status = 'queued';
   await saveRun(run);
 
   if (run.status === 'pages') void pumpPages(run.id);
-  else void drawCharacter(run.id);
+  else for (const c of run.cast) if (!c.approved) void drawCharacter(run.id, c.characterId);
   return run;
 }
 
-// ---- step 1: the character ------------------------------------------------------------
+// ---- step 1: the people, drawn in the book's style ---------------------------------------
 
-async function drawCharacter(runId: string): Promise<void> {
+async function drawCharacter(runId: string, characterId: string): Promise<void> {
   const started = Date.now();
   const run = await mutate(runId, (r) => {
-    r.status = 'character';
-    r.character.status = 'working';
-    r.character.message = null;
+    const step = castStep(r, characterId);
+    step.status = 'working';
+    step.message = null;
+    r.status = castStatus(r);
   });
   try {
     const book = await requireBook(run.bookId);
-    const child = await requireChild(run.childId);
+    const character = characterOf(book, characterId);
+    const person = await requirePerson(castStep(run, characterId).personId);
     const style = book.pages.find((p) => p.kind === 'cover') ?? book.pages[0];
     const styleArt = await readDataFile(`books/${book.id}/${style.image}`);
 
-    const images = [await forModel(await readDataFile(child.photo!), 1536), await forModel(styleArt, 1536)];
-    const heroPage = book.pages.find((p) => p.kind !== 'skip' && p.hasProtagonist && p.box);
-    if (heroPage?.box) {
-      const art = heroPage === style ? styleArt : await readDataFile(`books/${book.id}/${heroPage.image}`);
-      const { box } = heroPage;
+    const images = [await forModel(await readDataFile(person.photo!), 1536), await forModel(styleArt, 1536)];
+    const sample = book.pages.find((p) => p.kind !== 'skip' && p.cast[characterId]?.present && p.cast[characterId].box);
+    if (sample) {
+      const art = sample === style ? styleArt : await readDataFile(`books/${book.id}/${sample.image}`);
+      const box = sample.cast[characterId].box!;
       const crop = await sharp(art)
         .extract({
-          left: Math.round((box.x / 100) * heroPage.imageWidth),
-          top: Math.round((box.y / 100) * heroPage.imageHeight),
-          width: Math.max(1, Math.round((box.w / 100) * heroPage.imageWidth)),
-          height: Math.max(1, Math.round((box.h / 100) * heroPage.imageHeight)),
+          left: Math.round((box.x / 100) * sample.imageWidth),
+          top: Math.round((box.y / 100) * sample.imageHeight),
+          width: Math.max(1, Math.round((box.w / 100) * sample.imageWidth)),
+          height: Math.max(1, Math.round((box.h / 100) * sample.imageHeight)),
         })
         .toBuffer();
       images.push(await forModel(crop, 1024));
     }
 
-    const png = await generateImage(images, characterPrompt(book, child, images.length === 3), {
+    const png = await generateImage(images, characterPrompt(book, character, person, images.length === 3), {
       aspectRatio: '3:4',
-      onRetry: (a, of) => void mutate(runId, (r) => void (r.character.message = retryNote(a, of))),
+      onRetry: (a, of) => void mutate(runId, (r) => void (castStep(r, characterId).message = retryNote(a, of))),
     });
 
-    const file = await writeFileIn(`runs/${runId}/character-${Date.now().toString(36)}.png`, png);
+    const file = await writeFileIn(`runs/${runId}/cast-${characterId}-${Date.now().toString(36)}.png`, png);
     await mutate(runId, (r) => {
+      const step = castStep(r, characterId);
       r.images++;
-      r.character.status = 'done';
-      r.character.message = null;
-      r.character.attempts.push({ file, at: new Date().toISOString(), ms: Date.now() - started });
-      r.character.selected = r.character.attempts.length - 1;
-      r.status = 'review';
+      step.status = 'done';
+      step.message = null;
+      step.attempts.push({ file, at: new Date().toISOString(), ms: Date.now() - started });
+      step.selected = step.attempts.length - 1;
+      r.status = castStatus(r);
     });
   } catch (err) {
     console.error('[run] character', err instanceof Error ? err.message : err);
     await mutate(runId, (r) => {
-      r.character.status = 'error';
-      r.character.message = errorMessage(err);
-      r.status = r.character.attempts.length ? 'review' : 'character';
+      const step = castStep(r, characterId);
+      step.status = 'error';
+      step.message = errorMessage(err);
+      r.status = castStatus(r);
     });
   }
 }
 
-export async function regenerateCharacter(runId: string): Promise<void> {
+export async function regenerateCharacter(runId: string, characterId: string): Promise<Run> {
   const run = await requireRun(runId);
-  if (run.character.status === 'working') throw new HttpError(409, 'The character is already being drawn');
-  if (run.character.approved) throw new HttpError(409, 'The character is already approved');
-  void drawCharacter(runId);
+  const step = castStep(run, characterId);
+  if (step.status === 'working' || step.status === 'queued') throw new HttpError(409, 'Already being drawn');
+  if (step.approved) throw new HttpError(409, 'Already approved');
+  void drawCharacter(runId, characterId);
+  return run;
 }
 
-export async function selectCharacter(runId: string, attempt: number): Promise<Run> {
+export function selectCharacter(runId: string, characterId: string, attempt: number): Promise<Run> {
   return mutate(runId, (r) => {
-    if (r.character.approved) throw new HttpError(409, 'The character is already approved');
-    if (!r.character.attempts[attempt]) throw new HttpError(400, 'No such attempt');
-    r.character.selected = attempt;
+    const step = castStep(r, characterId);
+    if (step.approved) throw new HttpError(409, 'Already approved');
+    if (!step.attempts[attempt]) throw new HttpError(400, 'No such attempt');
+    step.selected = attempt;
   });
 }
 
-/** Saves the drawing on the child for reuse with this book, then starts the pages. */
-export async function approveCharacter(runId: string): Promise<Run> {
+/** Saves every drawing on its person for reuse with this book, then starts the pages. */
+export async function approveCast(runId: string): Promise<Run> {
   const run = await mutate(runId, (r) => {
-    if (!chosenFile(r.character)) throw new HttpError(409, 'There is no character to approve yet');
-    r.character.approved = true;
+    for (const step of r.cast) {
+      if (step.status === 'working' || step.status === 'queued') throw new HttpError(409, 'Wait until every drawing is finished');
+      if (!chosenFile(step)) throw new HttpError(409, 'One of the drawings failed — draw it again first');
+    }
+    for (const step of r.cast) step.approved = true;
     r.status = 'pages';
     for (const step of Object.values(r.pages)) if (step.status === 'waiting') step.status = 'queued';
   });
-  const child = await requireChild(run.childId);
-  child.characters[run.bookId] = await writeFileIn(`children/${child.id}/characters/${run.bookId}.png`, await readDataFile(chosenFile(run.character)!));
-  await saveChild(child);
+  for (const step of run.cast) {
+    if (step.reused) continue;
+    const person = await requirePerson(step.personId);
+    const key = drawingKey(run.bookId, step.characterId);
+    person.drawings[key] = await writeFileIn(`children/${person.id}/characters/${run.bookId}-${step.characterId}.png`, await readDataFile(chosenFile(step)!));
+    await savePerson(person);
+  }
   void pumpPages(runId);
   return run;
 }
@@ -219,7 +264,7 @@ async function pumpPages(runId: string): Promise<void> {
   }
 }
 
-/** The page with the child in place, plus the area around the main character before and after (for the check). */
+/** The page with one character replaced, plus the area around them before and after (for the check). */
 interface Drawn {
   result: Buffer;
   before: Buffer;
@@ -227,31 +272,39 @@ interface Drawn {
 }
 
 /**
- * One image call for a page. With a box and close-ups on, only the area around the box is
- * sent (enlarged), so the figure is big in the model's view: sharper faces on small figures
- * and pose kept better. The answer goes back into the page with a soft edge.
+ * One image call for one character on a page. With a box and close-ups on, only the area
+ * around the box is sent (enlarged), so the figure is big in the model's view. The answer goes
+ * back into the page with a soft edge.
  */
-async function render(book: Book, page: Page, child: Child, run: Run, fix: string | null, onRetry: (a: number, of: number) => void): Promise<Drawn> {
-  const art = await readDataFile(`books/${book.id}/${page.image}`);
+async function render(
+  book: Book,
+  page: Page,
+  character: BookCharacter,
+  person: Person,
+  head: Buffer,
+  art: Buffer,
+  fix: string | null,
+  onRetry: (a: number, of: number) => void
+): Promise<Drawn> {
   const { imageWidth: w, imageHeight: h } = page;
-  const head = await forModel(await headOf(await readDataFile(chosenFile(run.character)!)), 1024);
-  const photo = await forModel(await readDataFile(child.photo!), 1024);
-  const closeUp = !!page.box && book.settings.closeUp !== false;
+  const pageBox = castOn(page, character.id).box;
+  const photo = await forModel(await readDataFile(person.photo!), 1024);
+  const closeUp = !!pageBox && book.settings.closeUp !== false;
 
-  const region: Region = closeUp ? closeUpRegion(page.box!, w, h) : { left: 0, top: 0, width: w, height: h };
+  const region: Region = closeUp ? closeUpRegion(pageBox!, w, h) : { left: 0, top: 0, width: w, height: h };
   const source = closeUp ? await cutRegion(art, region) : art;
   const padded = await padToRatio(source);
-  const box = page.box ? (closeUp ? boxInRegion(page.box, region, w, h) : page.box) : null;
+  const box = pageBox ? (closeUp ? boxInRegion(pageBox, region, w, h) : pageBox) : null;
 
-  const answer = await generateImage([padded.image, head, photo], pagePrompt(book, page, child, fix, { closeUp, box }), {
+  const answer = await generateImage([padded.image, await forModel(head, 1024), photo], pagePrompt(book, page, character, person, fix, { closeUp, box }), {
     aspectRatio: padded.ratio,
     onRetry,
   });
   const edited = await unpad(answer, padded.crop, region.width, region.height);
   const before = await sharp(art).extract(region).png().toBuffer();
 
-  // Keep the original outside the main character's box; without that setting, still feather
-  // the close-up's edge so it melts into the page.
+  // Keep the rest outside the character's box; without that setting, still feather the
+  // close-up's edge so it melts into the page.
   const keepBox = book.settings.keepOutsideBox && box ? box : closeUp ? { x: 3, y: 3, w: 94, h: 94 } : null;
   const after = keepBox ? await blendInBox(before, edited, keepBox, region.width, region.height) : edited;
   const result = closeUp ? await pasteRegion(art, after, region) : after;
@@ -259,12 +312,11 @@ async function render(book: Book, page: Page, child: Child, run: Run, fix: strin
 }
 
 /** The text model compares before and after; null when the check itself fails (never blocks a page). */
-async function checkPage(book: Book, page: Page, run: Run, drawn: Drawn): Promise<PageCheck | null> {
+async function checkCharacter(book: Book, page: Page, character: BookCharacter, head: Buffer, drawn: Drawn): Promise<PageCheck | null> {
   try {
-    const head = await forModel(await headOf(await readDataFile(chosenFile(run.character)!)), 768);
     return await generateJson<PageCheck>(
-      [await forModel(drawn.before, 1024), await forModel(drawn.after, 1024), head],
-      pageCheckPrompt(book, page),
+      [await forModel(drawn.before, 1024), await forModel(drawn.after, 1024), await forModel(head, 768)],
+      pageCheckPrompt(book, page, character),
       pageCheckSchema
     );
   } catch (err) {
@@ -273,54 +325,84 @@ async function checkPage(book: Book, page: Page, run: Run, drawn: Drawn): Promis
   }
 }
 
-/** `auto` marks the one automatic redraw after a failed check, so it can't loop. */
-async function drawPage(runId: string, index: number, auto = false): Promise<void> {
+/**
+ * One version of a page: every assigned character on it, replaced in turn on the same image.
+ * Each is checked, and redrawn once with the check's correction if something is off.
+ */
+async function drawPage(runId: string, index: number): Promise<void> {
   const started = Date.now();
   const run = await mutate(runId, (r) => {
     r.pages[index].status = 'working';
-    if (!auto) r.pages[index].message = null;
+    r.pages[index].message = null;
   });
+  const say = (message: string) => mutate(runId, (r) => void (r.pages[index].message = message));
   try {
     const book = await requireBook(run.bookId);
-    const child = await requireChild(run.childId);
     const page = pageOf(book, index);
-    const fix = run.pages[index].fix ?? null;
+    const { fix = null, fixFor = null } = run.pages[index];
+    const members = run.cast.filter((c) => page.cast[c.characterId]?.present && book.characters.some((b) => b.id === c.characterId));
 
-    const drawn = await render(book, page, child, run, fix, (a, of) => void mutate(runId, (r) => void (r.pages[index].message = retryNote(a, of))));
-    const file = await writeFileIn(`runs/${runId}/pages/${String(index).padStart(2, '0')}-${Date.now().toString(36)}.jpg`, await toJpeg(drawn.result));
+    let art: Buffer = await readDataFile(`books/${book.id}/${page.image}`);
+    const notes: string[] = [];
+    const fixes: string[] = fix ? [fix] : [];
+    let allOk = true;
+    let anyCheck = false;
+    let auto = false;
 
-    let check: PageCheck | null = null;
-    if (book.settings.autoCheck !== false) {
-      await mutate(runId, (r) => void (r.pages[index].message = 'Checking pose, clothing and likeness…'));
-      check = await checkPage(book, page, run, drawn);
+    for (const member of members) {
+      const character = characterOf(book, member.characterId);
+      const person = await requirePerson(member.personId);
+      const head = await headOf(await readDataFile(chosenFile(member)!));
+      const own = fix && (!fixFor || fixFor === character.id) ? fix : null;
+      const multi = members.length > 1 ? `${character.label}: ` : '';
+
+      await say(`${multi}drawing…`);
+      let drawn = await render(book, page, character, person, head, art, own, (a, of) => void say(`${multi}${retryNote(a, of)}`));
+      await mutate(runId, (r) => void r.images++);
+
+      if (book.settings.autoCheck !== false) {
+        await say(`${multi}checking pose, clothing, style and likeness…`);
+        let check = await checkCharacter(book, page, character, head, drawn);
+        const correction = check && !checkPassed(check) ? check.correction.trim().slice(0, FIX_MAX) : '';
+        if (correction) {
+          // One automatic redraw with the check's own description of what went wrong.
+          await say(`${multi}check: ${correction} — drawing again`);
+          const combined = own ? `${own}; ${correction}` : correction;
+          drawn = await render(book, page, character, person, head, art, combined, (a, of) => void say(`${multi}${retryNote(a, of)}`));
+          await mutate(runId, (r) => void r.images++);
+          check = await checkCharacter(book, page, character, head, drawn);
+          fixes.push(`${multi}${correction}`);
+          auto = true;
+        }
+        if (check) {
+          anyCheck = true;
+          const ok = checkPassed(check);
+          allOk &&= ok;
+          notes.push(`${multi}${ok ? (correction ? 'fixed after the check' : 'looks right') : check.correction.trim() || 'something differs from the original'}`);
+        } else {
+          notes.push(`${multi}check unavailable, look yourself`);
+        }
+      }
+      art = drawn.result;
     }
-    const ok = !check || checkPassed(check);
-    const correction = check && !ok ? check.correction.trim().slice(0, FIX_MAX) : '';
-    const redraw = !ok && !auto && !!correction;
 
+    const file = await writeFileIn(`runs/${runId}/pages/${String(index).padStart(2, '0')}-${Date.now().toString(36)}.jpg`, await toJpeg(art));
     await mutate(runId, (r) => {
       const step = r.pages[index];
-      r.images++;
       step.attempts.push({
         file,
         at: new Date().toISOString(),
         ms: Date.now() - started,
-        ...(fix ? { fix, ...(auto ? { auto: true } : {}) } : {}),
-        ...(check ? { check: { ok, note: ok ? 'Pose, clothing and likeness look right' : correction || 'Something differs from the original' } } : {}),
+        ...(fixes.length ? { fix: fixes.join('; '), ...(auto ? { auto: true } : {}) } : {}),
+        ...(anyCheck ? { check: { ok: allOk, note: notes.join(' · ') } } : {}),
       });
       step.selected = step.attempts.length - 1;
-      if (redraw) {
-        // Keep a person's correction and add the check's to it.
-        step.fix = fix ? `${fix}; ${correction}` : correction;
-        step.message = `Check: ${correction} — drawing it again`;
-      } else {
-        step.status = 'done';
-        step.message = null;
-        step.fix = null;
-      }
+      step.status = 'done';
+      step.message = null;
+      step.fix = null;
+      step.fixFor = null;
     });
     busyRetried.delete(`${runId}:${index}`);
-    if (redraw) return drawPage(runId, index, true);
   } catch (err) {
     console.error(`[run] page ${index}`, err instanceof Error ? err.message : err);
     const key = `${runId}:${index}`;
@@ -331,7 +413,7 @@ async function drawPage(runId: string, index: number, auto = false): Promise<voi
         r.pages[index].message = 'Google is busy — trying again in 30 s';
       });
       await new Promise((resolve) => setTimeout(resolve, BUSY_RETRY_MS));
-      return drawPage(runId, index, auto);
+      return drawPage(runId, index);
     }
     busyRetried.delete(key);
     await mutate(runId, (r) => {
@@ -341,16 +423,20 @@ async function drawPage(runId: string, index: number, auto = false): Promise<voi
   }
 }
 
-/** `fix` is an optional short correction for this one attempt, e.g. "facing away from us, like the original". */
-export async function regeneratePage(runId: string, index: number, fix?: string): Promise<Run> {
+/**
+ * `fix` is an optional short correction for this one attempt, e.g. "facing away from us, like
+ * the original"; `fixFor` limits it to one character (default: everyone on the page).
+ */
+export async function regeneratePage(runId: string, index: number, fix?: string, fixFor?: string | null): Promise<Run> {
   const run = await mutate(runId, (r) => {
     const step = r.pages[index];
     if (!step) throw new HttpError(404, 'That page is not in this run');
-    if (!r.character.approved) throw new HttpError(409, 'Approve the character first');
+    if (!r.cast.every((c) => c.approved)) throw new HttpError(409, 'Approve the drawings first');
     if (step.status === 'working' || step.status === 'queued') throw new HttpError(409, 'That page is already being made');
     step.status = 'queued';
     step.message = null;
     step.fix = fix?.trim().slice(0, FIX_MAX) || null;
+    step.fixFor = step.fix ? fixFor || null : null;
     r.status = 'pages';
   });
   void pumpPages(runId);
@@ -372,14 +458,14 @@ export function selectPageAttempt(runId: string, index: number, attempt: number)
 export async function resumeIfIdle(run: Run): Promise<Run> {
   if ((workers.get(run.id) ?? 0) > 0 || locks.has(run.id)) return run;
   const stuckPages = Object.values(run.pages).some((s) => s.status === 'working' || (s.status === 'queued' && run.status === 'pages'));
-  const stuckCharacter = run.character.status === 'working' || run.character.status === 'queued';
-  if (!stuckPages && !stuckCharacter) return run;
+  const stuckCast = run.cast.filter((c) => !c.approved && (c.status === 'working' || c.status === 'queued'));
+  if (!stuckPages && !stuckCast.length) return run;
 
   locks.set(run.id, Promise.resolve());
   const fixed = await mutate(run.id, (r) => {
     for (const s of Object.values(r.pages)) if (s.status === 'working') s.status = 'queued';
   });
-  if (stuckCharacter && !fixed.character.approved) void drawCharacter(run.id);
+  if (stuckCast.length) for (const c of stuckCast) void drawCharacter(run.id, c.characterId);
   else void pumpPages(run.id);
   return fixed;
 }

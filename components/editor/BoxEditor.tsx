@@ -14,9 +14,18 @@ type Drag =
 const MIN = 2;
 const clamp = (n: number, lo = 0, hi = 100) => Math.min(Math.max(n, lo), hi);
 const round = (b: Box): Box => ({ x: +b.x.toFixed(2), y: +b.y.toFixed(2), w: +b.w.toFixed(2), h: +b.h.toFixed(2) });
+const at = (b: Box) => ({ left: `${b.x}%`, top: `${b.y}%`, width: `${b.w}%`, height: `${b.h}%` });
 
-/** Draw, move and resize the hero's box over the illustration. Coordinates are % of the art. */
-export function BoxEditor({ box, onChange }: { box: Box | null; onChange: (box: Box | null) => void }) {
+interface Props {
+  box: Box | null;
+  label: string;
+  onChange: (box: Box | null) => void;
+  /** Other characters' boxes on this page, shown faintly for orientation. */
+  others?: { label: string; box: Box }[];
+}
+
+/** Draw, move and resize one character's box over the illustration. Coordinates are % of the art. */
+export function BoxEditor({ box, label, onChange, others = [] }: Props) {
   const layer = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | null>(null);
   const [live, setLive] = useState<Box | null>(null);
@@ -72,17 +81,22 @@ export function BoxEditor({ box, onChange }: { box: Box | null; onChange: (box: 
       onPointerUp={end}
       onPointerCancel={end}
     >
+      {others.map((o) => (
+        <div key={o.label} className={styles.other} style={at(o.box)}>
+          <span className={styles.otherLabel}>{o.label}</span>
+        </div>
+      ))}
       {shown && (
         <div
           className={styles.box}
-          style={{ left: `${shown.x}%`, top: `${shown.y}%`, width: `${shown.w}%`, height: `${shown.h}%` }}
+          style={at(shown)}
           onPointerDown={(e) => {
             if (!box) return;
             const p = point(e);
             start(e, { mode: 'move', dx: p.x - box.x, dy: p.y - box.y });
           }}
         >
-          <span className={styles.label}>Main character</span>
+          <span className={styles.label}>{label}</span>
           {(['nw', 'ne', 'sw', 'se'] as const).map((corner) => (
             <span
               key={corner}

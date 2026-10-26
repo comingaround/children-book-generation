@@ -29,7 +29,6 @@ THUMB_MAX = 420
 # Publisher promos and ads that are not part of the story.
 AD_LINE = re.compile(r"advertisement|published by|www\.|\.com\b", re.I)
 SKIP_PAGE = re.compile(r"dear supporter|discover more|your story book|personalised children", re.I)
-FRONT_MATTER = re.compile(r"published by", re.I)
 
 
 def slugify(name: str) -> str:
@@ -237,11 +236,8 @@ def import_pdf(pdf: Path, book_id: str | None = None) -> str:
             "index": i,
             "kind": kind,
             **save_art(doc, page, i, out),
-            "hasProtagonist": kind != "skip" and not FRONT_MATTER.search(page.get_text()),
-            "box": None,
-            "characterHint": "",
-            "pose": "",
-            "clothing": "",
+            # Filled per character in the editor ("Prepare all pages with AI").
+            "cast": {},
             "scenePrompt": "",
             "lines": lines,
         })
@@ -255,12 +251,9 @@ def import_pdf(pdf: Path, book_id: str | None = None) -> str:
         "pageWidth": round(first.width, 2),
         "pageHeight": round(first.height, 2),
         "fonts": fonts,
+        "characters": [],
         "settings": {
             "artStyle": "",
-            "protagonistName": "",
-            "protagonistGender": "boy",
-            "protagonistDescription": "",
-            "clothing": "",
             "keepOutsideBox": True,
             "textHalo": False,
         },

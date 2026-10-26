@@ -11,7 +11,7 @@ import ui from '../ui.module.css';
 import styles from './Flipbook.module.css';
 
 /** The finished pages one at a time, as a reader would see them. Arrow keys turn, Esc closes. */
-export function Flipbook({ book, run, name, onClose }: { book: Book; run: Run; name: string | null; onClose: () => void }) {
+export function Flipbook({ book, run, names, onClose }: { book: Book; run: Run; names: [string, string][]; onClose: () => void }) {
   const pages = run.pageIndexes
     .map((i) => {
       const step = run.pages[i];
@@ -53,7 +53,7 @@ export function Flipbook({ book, run, name, onClose }: { book: Book; run: Run; n
           <button className={cx(ui.iconBtn, styles.turn)} onClick={() => go(-1)} disabled={at === 0} aria-label="Previous page">
             <BackIcon />
           </button>
-          <BookPage key={current.page.index} book={book} page={current.page} art={current.file} name={name} className={cx(styles.page, wide ? styles.wide : styles.tall)} />
+          <BookPage key={current.page.index} book={book} page={current.page} art={current.file} names={names} className={cx(styles.page, wide ? styles.wide : styles.tall)} />
           <button className={cx(ui.iconBtn, styles.turn)} onClick={() => go(1)} disabled={at === pages.length - 1} aria-label="Next page">
             <NextIcon />
           </button>

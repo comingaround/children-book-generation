@@ -151,40 +151,6 @@
   margin-left: -14px;
 }
 
-.switchText {
-  display: flex;
-  flex-direction: column;
-  font-size: var(--text-sm);
-  font-weight: 500;
-}
-
-.plan {
-  display: flex;
-  flex-direction: column;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  font-size: var(--text-sm);
-}
-
-.plan li {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: var(--space-2) 0;
-}
-
-.plan li + li {
-  border-top: 1px solid var(--line);
-}
-
-.total {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.footer {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
+.error {
+  color: var(--danger-ink);
 }

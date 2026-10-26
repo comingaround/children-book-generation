@@ -62,3 +62,26 @@
   bottom: -8px;
   cursor: nwse-resize;
 }
+
+/* Other characters on the page: outlined only, not editable here. */
+.other {
+  position: absolute;
+  border: 1.5px dashed rgb(69 103 143 / 0.7);
+  pointer-events: none;
+}
+
+.otherLabel {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: -2px;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  background: var(--wash-sky);
+  color: var(--info-ink);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: var(--track-ui);
+  text-transform: uppercase;
+  white-space: nowrap;
+}

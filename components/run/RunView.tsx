@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 
 import { api, cx, money, seconds } from '@/lib/client';
-import { FIX_MAX, fileUrl, type Attempt, type Book, type Child, type Run, type RunStep } from '@/lib/types';
+import { chosenFile, FIX_MAX, fileUrl, presentOn, type Attempt, type Book, type CastStep, type Person, type Run, type RunStep } from '@/lib/types';
 
 import { BookFonts, BookPage } from '../BookPage';
 import { BackIcon, BookIcon, CheckIcon, RedoIcon, TrashIcon } from '../icons';
@@ -16,18 +16,21 @@ import styles from './RunView.module.css';
 
 const POLL_MS = 2000;
 
-const chosen = (step: RunStep) => step.attempts[step.selected ?? step.attempts.length - 1]?.file ?? null;
+const chosen = (step: RunStep) => chosenFile(step);
 
-const active = (run: Run) =>
-  ['queued', 'working'].includes(run.character.status) || Object.values(run.pages).some((s) => s.status === 'queued' || s.status === 'working');
+const busyStep = (s: RunStep) => s.status === 'queued' || s.status === 'working';
 
-export function RunView({ initial, book, child, price }: { initial: Run; book: Book; child: Child | null; price: number }) {
+const active = (run: Run) => run.cast.some((c) => !c.approved && busyStep(c)) || Object.values(run.pages).some(busyStep);
+
+export function RunView({ initial, book, people, price }: { initial: Run; book: Book; people: Person[]; price: number }) {
   const router = useRouter();
   const [run, setRun] = useState(initial);
   const [error, setError] = useState<string | null>(null);
   const [reading, setReading] = useState(false);
   /** Correction typed under each page, by page index; sent with its next Regenerate. */
   const [fixes, setFixes] = useState<Record<number, string>>({});
+  /** Which character a page's correction is for ('' = everyone on the page). */
+  const [fixFor, setFixFor] = useState<Record<number, string>>({});
   const polling = active(run);
 
   const refresh = useCallback(async () => {
@@ -54,7 +57,7 @@ export function RunView({ initial, book, child, price }: { initial: Run; book: B
   }
 
   async function regenerate(index: number) {
-    await act(`/api/runs/${run.id}/pages/${index}`, { action: 'regenerate', fix: fixes[index] ?? '' });
+    await act(`/api/runs/${run.id}/pages/${index}`, { action: 'regenerate', fix: fixes[index] ?? '', fixFor: fixFor[index] || null });
     setFixes((f) => ({ ...f, [index]: '' }));
   }
 
@@ -64,11 +67,18 @@ export function RunView({ initial, book, child, price }: { initial: Run; book: B
     router.push('/');
   }
 
-  const c = run.character;
-  const characterFile = chosen(c);
+  const personOf = (step: CastStep) => people.find((p) => p.id === step.personId) ?? null;
+  const characterOf = (id: string) => book.characters.find((c) => c.id === id);
   const pages = run.pageIndexes.map((i) => book.pages.find((p) => p.index === i)).filter((p) => !!p);
   const done = pages.filter((p) => run.pages[p.index]?.status === 'done').length;
-  const name = child?.name ?? null;
+  const approved = run.cast.every((c) => c.approved);
+  const drawing = run.cast.some((c) => !c.approved && busyStep(c));
+  const canApprove = !approved && !drawing && run.cast.every((c) => chosen(c));
+  /** Name swaps for the page text: each character's name in the book → their person's name. */
+  const names: [string, string][] = run.cast
+    .map((c) => [characterOf(c.characterId)?.nameInText.trim() ?? '', personOf(c)?.name ?? ''] as [string, string])
+    .filter(([from, to]) => from && to);
+  const who = run.cast.map((c) => personOf(c)?.name ?? 'a deleted person').join(' & ');
 
   return (
     <main className={styles.layout}>
@@ -81,7 +91,7 @@ export function RunView({ initial, book, child, price }: { initial: Run; book: B
         </Link>
         <div className={styles.titles}>
           <h1 className={styles.title}>
-            {book.title} <span className={styles.with}>with</span> {name ?? 'a deleted child'}
+            {book.title} <span className={styles.with}>with</span> {who}
           </h1>
           <span className={ui.muted}>
             {run.images} {run.images === 1 ? 'image' : 'images'} generated · {money(run.images * price)}
@@ -105,97 +115,97 @@ export function RunView({ initial, book, child, price }: { initial: Run; book: B
       )}
 
       {/* Step 1 */}
-      <section className={cx(ui.panel, styles.character)}>
-        <div className={styles.charImages}>
-          <figure className={styles.photo}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            {child?.photo ? <img src={fileUrl(child.photo)} alt={`Photo of ${child.name}`} /> : <span className={ui.muted}>No photo</span>}
-            <figcaption>Photo</figcaption>
-          </figure>
-          <span className={styles.arrow} aria-hidden="true">
-            →
-          </span>
-          <figure className={styles.drawing}>
-            {characterFile ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={fileUrl(characterFile)} alt={`${name ?? 'The child'} drawn in the book's style`} />
-            ) : (
-              <span className={styles.placeholder}>{c.status === 'error' ? 'No drawing' : <span className={ui.spinner} />}</span>
-            )}
-            {c.status === 'working' && characterFile && (
-              <span className={styles.working}>
-                <span className={ui.spinner} />
-              </span>
-            )}
-            <figcaption>In the book&apos;s style</figcaption>
-          </figure>
+      <section className={cx(ui.panel, styles.castSection)}>
+        <div className={styles.castHead}>
+          <div className={styles.charText}>
+            <span className={ui.eyebrow}>Step 1 · People in the book&apos;s style</span>
+            <h2 className={ui.panelTitle}>
+              {approved ? 'Drawings approved' : drawing ? 'Drawing everyone…' : 'Do these look like them?'}
+            </h2>
+            <p className={ui.muted}>
+              {approved
+                ? 'Every page copies these drawings, so everyone looks the same throughout.'
+                : 'Every page will copy these drawings. Draw any of them again, then approve. Pages start only after you approve.'}
+            </p>
+          </div>
+          {!approved && (
+            <button className={cx(ui.btn, ui.primary)} onClick={() => act(`/api/runs/${run.id}/character`, { action: 'approve' })} disabled={!canApprove}>
+              <CheckIcon />
+              Approve and make {pages.length} {pages.length === 1 ? 'page' : 'pages'}
+            </button>
+          )}
         </div>
 
-        <div className={styles.charText}>
-          <span className={ui.eyebrow}>Step 1 · Character</span>
-          <h2 className={ui.panelTitle}>
-            {c.approved ? 'Character approved' : c.status === 'working' || c.status === 'queued' ? 'Drawing the character…' : 'Does this look like the child?'}
-          </h2>
-          <p className={ui.muted}>
-            {c.reused
-              ? 'Reused the drawing approved earlier for this book.'
-              : c.approved
-                ? 'Every page copies this drawing, so the child looks the same throughout.'
-                : 'Every page will copy this drawing. Approve it, or draw it again. Pages start only after you approve.'}
-          </p>
-          {c.message && (
-            <p className={cx(ui.notice, ui.noticeInfo)}>
-              <span className={ui.dot} />
-              {c.message}
-            </p>
-          )}
-          {c.status === 'error' && (
-            <p className={cx(ui.notice, ui.noticeError)}>
-              <span className={ui.dot} />
-              {c.message ?? 'The drawing failed.'}
-            </p>
-          )}
-
-          {c.attempts.length > 1 && (
-            <div className={styles.attempts} role="group" aria-label="Character attempts">
-              {c.attempts.map((a, i) => (
-                <button
-                  key={a.file}
-                  className={cx(styles.attempt, (c.selected ?? c.attempts.length - 1) === i && styles.attemptOn)}
-                  onClick={() => act(`/api/runs/${run.id}/character`, { action: 'select', attempt: i })}
-                  disabled={c.approved}
-                  aria-pressed={(c.selected ?? c.attempts.length - 1) === i}
-                  aria-label={`Attempt ${i + 1}`}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={fileUrl(a.file)} alt="" />
-                </button>
-              ))}
-            </div>
-          )}
-
-          {!c.approved && (characterFile || c.status === 'error') && (
-            <div className={ui.row}>
-              <button
-                className={cx(ui.btn, ui.primary)}
-                onClick={() => act(`/api/runs/${run.id}/character`, { action: 'approve' })}
-                disabled={!characterFile || c.status === 'working'}
-              >
-                <CheckIcon />
-                Approve and make {pages.length} {pages.length === 1 ? 'page' : 'pages'}
-              </button>
-              <button
-                className={cx(ui.btn, ui.secondary)}
-                onClick={() => act(`/api/runs/${run.id}/character`, { action: 'regenerate' })}
-                disabled={c.status === 'working' || c.status === 'queued'}
-              >
-                <RedoIcon />
-                Draw again
-              </button>
-            </div>
-          )}
-          {c.attempts.at(-1) && <span className={ui.help}>Last drawing took {seconds(c.attempts.at(-1)!.ms)}</span>}
-        </div>
+        <ul className={styles.castCards}>
+          {run.cast.map((step) => {
+            const person = personOf(step);
+            const character = characterOf(step.characterId);
+            const file = chosen(step);
+            return (
+              <li key={step.characterId} className={styles.castCard}>
+                <div className={styles.charImages}>
+                  <figure className={styles.photo}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    {person?.photo ? <img src={fileUrl(person.photo)} alt={`Photo of ${person.name}`} /> : <span className={ui.muted}>No photo</span>}
+                    <figcaption>{person?.name ?? 'Deleted person'}</figcaption>
+                  </figure>
+                  <span className={styles.arrow} aria-hidden="true">
+                    →
+                  </span>
+                  <figure className={styles.drawing}>
+                    {file ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={fileUrl(file)} alt={`${person?.name ?? 'Person'} drawn as ${character?.label ?? 'a character'}`} />
+                    ) : (
+                      <span className={styles.placeholder}>{step.status === 'error' ? 'No drawing' : <span className={ui.spinner} />}</span>
+                    )}
+                    {step.status === 'working' && file && (
+                      <span className={styles.working}>
+                        <span className={ui.spinner} />
+                      </span>
+                    )}
+                    <figcaption>as {character?.label ?? 'a removed character'}</figcaption>
+                  </figure>
+                </div>
+                {step.reused && <span className={cx(ui.chip, ui.sage)}>Reused from an earlier run</span>}
+                {step.message && (
+                  <p className={cx(ui.notice, step.status === 'error' ? ui.noticeError : ui.noticeInfo)}>
+                    <span className={ui.dot} />
+                    {step.message}
+                  </p>
+                )}
+                {step.attempts.length > 1 && (
+                  <div className={styles.attempts} role="group" aria-label={`${person?.name ?? ''} attempts`}>
+                    {step.attempts.map((a, i) => (
+                      <button
+                        key={a.file}
+                        className={cx(styles.attempt, (step.selected ?? step.attempts.length - 1) === i && styles.attemptOn)}
+                        onClick={() => act(`/api/runs/${run.id}/character`, { action: 'select', characterId: step.characterId, attempt: i })}
+                        disabled={step.approved}
+                        aria-pressed={(step.selected ?? step.attempts.length - 1) === i}
+                        aria-label={`Attempt ${i + 1}`}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={fileUrl(a.file)} alt="" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {!step.approved && (file || step.status === 'error') && (
+                  <button
+                    className={cx(ui.btn, ui.secondary, ui.small)}
+                    onClick={() => act(`/api/runs/${run.id}/character`, { action: 'regenerate', characterId: step.characterId })}
+                    disabled={busyStep(step)}
+                  >
+                    <RedoIcon />
+                    Draw again
+                  </button>
+                )}
+                {step.attempts.at(-1) && !step.reused && <span className={ui.help}>Took {seconds(step.attempts.at(-1)!.ms)}</span>}
+              </li>
+            );
+          })}
+        </ul>
       </section>
 
       {/* Step 2 */}
@@ -211,6 +221,7 @@ export function RunView({ initial, book, child, price }: { initial: Run; book: B
             const step = run.pages[page.index];
             const file = chosen(step);
             const shown = step.attempts[step.selected ?? step.attempts.length - 1] as Attempt | undefined;
+            const onPage = presentOn(book, page).filter((c) => run.cast.some((m) => m.characterId === c.id));
             const label = page.kind === 'cover' ? 'Cover' : `Page ${page.index}`;
             return (
               <li key={page.index} className={cx(styles.pageCard, book.pageWidth > book.pageHeight && styles.pageCardWide)}>
@@ -229,14 +240,14 @@ export function RunView({ initial, book, child, price }: { initial: Run; book: B
                   <BeforeAfter
                     label={label}
                     before={<BookPage book={book} page={page} />}
-                    after={<BookPage book={book} page={page} art={file} name={name} />}
+                    after={<BookPage book={book} page={page} art={file} names={names} />}
                   />
                 ) : (
                   <div className={styles.pending}>
                     <BookPage book={book} page={page} />
                     <span className={styles.pendingVeil}>
                       {step.status === 'working' && <span className={ui.spinner} />}
-                      {step.status === 'waiting' && 'Waits for the character'}
+                      {step.status === 'waiting' && 'Waits for the drawings'}
                       {step.status === 'queued' && 'In the queue'}
                       {step.status === 'working' && (step.message ?? 'Drawing…')}
                       {step.status === 'error' && 'Failed'}
@@ -260,10 +271,22 @@ export function RunView({ initial, book, child, price }: { initial: Run; book: B
                 {file && shown?.check && !shown.check.ok && step.status === 'done' && (
                   <p className={cx(ui.notice, ui.noticeError)}>
                     <span className={ui.dot} />
-                    The check still sees a problem: {shown.check.note}. Type a fix below or pick another version.
+                    The check still sees a problem: {shown.check.note.replace(/\.$/, '')}. Type a fix below or pick another version.
                   </p>
                 )}
 
+                {(step.attempts.length > 0 || step.status === 'error') && onPage.length > 1 && (
+                  <div className={ui.segmented} role="group" aria-label={`Who the fix for ${label} is for`}>
+                    <button className={ui.segment} aria-pressed={!fixFor[page.index]} onClick={() => setFixFor((f) => ({ ...f, [page.index]: '' }))}>
+                      Everyone
+                    </button>
+                    {onPage.map((c) => (
+                      <button key={c.id} className={ui.segment} aria-pressed={fixFor[page.index] === c.id} onClick={() => setFixFor((f) => ({ ...f, [page.index]: c.id }))}>
+                        {c.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {(step.attempts.length > 0 || step.status === 'error') && (
                   <label className={styles.fix}>
                     <span className={ui.srOnly}>Optional correction for {label}</span>
@@ -273,7 +296,7 @@ export function RunView({ initial, book, child, price }: { initial: Run; book: B
                       maxLength={FIX_MAX}
                       onChange={(e) => setFixes((f) => ({ ...f, [page.index]: e.target.value }))}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' && c.approved && step.status !== 'working' && step.status !== 'queued') void regenerate(page.index);
+                        if (e.key === 'Enter' && approved && step.status !== 'working' && step.status !== 'queued') void regenerate(page.index);
                       }}
                       placeholder="Optional fix, e.g. facing away from us, like the original"
                       disabled={step.status === 'working' || step.status === 'queued'}
@@ -305,7 +328,7 @@ export function RunView({ initial, book, child, price }: { initial: Run; book: B
                   <button
                     className={cx(ui.btn, ui.secondary, ui.small, styles.redo)}
                     onClick={() => regenerate(page.index)}
-                    disabled={!c.approved || step.status === 'working' || step.status === 'queued'}
+                    disabled={!approved || step.status === 'working' || step.status === 'queued'}
                   >
                     <RedoIcon />
                     {step.attempts.length ? 'Regenerate' : 'Try again'}
@@ -317,15 +340,15 @@ export function RunView({ initial, book, child, price }: { initial: Run; book: B
         </ul>
       </section>
 
-      {reading && <Flipbook book={book} run={run} name={name} onClose={() => setReading(false)} />}
+      {reading && <Flipbook book={book} run={run} names={names} onClose={() => setReading(false)} />}
     </main>
   );
 }
 
 function StatusChip({ run, done, total }: { run: Run; done: number; total: number }) {
   if (run.status === 'done') return <span className={cx(ui.chip, ui.sage)}>Done</span>;
-  if (run.status === 'review') return <span className={cx(ui.chip, ui.butter)}>Check the character</span>;
-  if (run.status === 'character') return <span className={cx(ui.chip, ui.lilac)}>Drawing character</span>;
+  if (run.status === 'review') return <span className={cx(ui.chip, ui.butter)}>Check the drawings</span>;
+  if (run.status === 'character') return <span className={cx(ui.chip, ui.lilac)}>Drawing people</span>;
   return (
     <span className={cx(ui.chip, ui.sky)}>
       Pages {done}/{total}

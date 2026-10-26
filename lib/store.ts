@@ -6,9 +6,10 @@ import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promise
 import { dirname, resolve, sep } from 'node:path';
 
 import { HttpError } from './http-error';
-import type { Book, Child, Run, RunSummary } from './types';
+import { migrateBook, migratePerson, migrateRun } from './migrate';
+import { chosenFile, type Book, type Person, type Run, type RunSummary } from './types';
 
-/** Everything the CMS keeps lives in data/: books/, children/, runs/. Plain files, no database. */
+/** Everything the CMS keeps lives in data/: books/, children/ (people), runs/. Plain files, no database. */
 export const DATA = resolve(process.cwd(), 'data');
 
 /** Resolves a path inside data/, refusing anything that climbs out of it. */
@@ -53,7 +54,10 @@ async function listDirs(sub: string): Promise<string[]> {
 
 // ---- books -------------------------------------------------------------------
 
-export const getBook = (id: string) => readJson<Book>(dataPath('books', id, 'book.json'));
+export const getBook = async (id: string) => {
+  const book = await readJson<Book>(dataPath('books', id, 'book.json'));
+  return book && migrateBook(book);
+};
 
 export async function requireBook(id: string): Promise<Book> {
   const book = await getBook(id);
@@ -70,28 +74,34 @@ export async function listBooks(): Promise<Book[]> {
 
 export const deleteBook = (id: string) => rm(dataPath('books', id), { recursive: true, force: true });
 
-// ---- children ----------------------------------------------------------------
+// ---- people (stored in data/children/, where the first version kept them) ------------------
 
-export const getChild = (id: string) => readJson<Child>(dataPath('children', id, 'child.json'));
+export const getPerson = async (id: string) => {
+  const person = await readJson<Person>(dataPath('children', id, 'child.json'));
+  return person && migratePerson(person);
+};
 
-export async function requireChild(id: string): Promise<Child> {
-  const child = await getChild(id);
-  if (!child) throw new HttpError(404, 'Child not found');
-  return child;
+export async function requirePerson(id: string): Promise<Person> {
+  const person = await getPerson(id);
+  if (!person) throw new HttpError(404, 'Person not found');
+  return person;
 }
 
-export const saveChild = (child: Child) => writeJson(dataPath('children', child.id, 'child.json'), child);
+export const savePerson = (person: Person) => writeJson(dataPath('children', person.id, 'child.json'), person);
 
-export async function listChildren(): Promise<Child[]> {
-  const children = await Promise.all((await listDirs('children')).map(getChild));
-  return children.filter((c): c is Child => !!c).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+export async function listPeople(): Promise<Person[]> {
+  const people = await Promise.all((await listDirs('children')).map(getPerson));
+  return people.filter((p): p is Person => !!p).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-export const deleteChild = (id: string) => rm(dataPath('children', id), { recursive: true, force: true });
+export const deletePerson = (id: string) => rm(dataPath('children', id), { recursive: true, force: true });
 
 // ---- runs --------------------------------------------------------------------
 
-export const getRun = (id: string) => readJson<Run>(dataPath('runs', id, 'run.json'));
+export const getRun = async (id: string) => {
+  const run = await readJson<Run>(dataPath('runs', id, 'run.json'));
+  return run && migrateRun(run);
+};
 
 export async function requireRun(id: string): Promise<Run> {
   const run = await getRun(id);
@@ -101,16 +111,10 @@ export async function requireRun(id: string): Promise<Run> {
 
 export const saveRun = (run: Run) => writeJson(dataPath('runs', run.id, 'run.json'), run);
 
-/** The image a step currently shows: its chosen attempt, else its newest. */
-export function chosenFile(step: { attempts: { file: string }[]; selected: number | null }): string | null {
-  if (!step.attempts.length) return null;
-  return step.attempts[step.selected ?? step.attempts.length - 1]?.file ?? null;
-}
-
 export async function listRuns(): Promise<RunSummary[]> {
   const runs = (await Promise.all((await listDirs('runs')).map(getRun))).filter((r): r is Run => !!r);
   const books = new Map((await listBooks()).map((b) => [b.id, b]));
-  const children = new Map((await listChildren()).map((c) => [c.id, c]));
+  const people = new Map((await listPeople()).map((p) => [p.id, p]));
   return runs
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     .map((run) => {
@@ -120,12 +124,12 @@ export async function listRuns(): Promise<RunSummary[]> {
         id: run.id,
         bookId: run.bookId,
         bookTitle: books.get(run.bookId)?.title ?? run.bookId,
-        childName: children.get(run.childId)?.name ?? 'Deleted child',
+        people: run.cast.map((c) => people.get(c.personId)?.name ?? 'Deleted person').join(', '),
         createdAt: run.createdAt,
         status: run.status,
         done: steps.filter((s) => s.status === 'done').length,
         total: steps.length,
-        cover: (first && chosenFile(first)) ?? chosenFile(run.character),
+        cover: (first && chosenFile(first)) ?? (run.cast[0] ? chosenFile(run.cast[0]) : null),
       };
     });
 }

@@ -5,27 +5,26 @@ import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
 
 import { ago, api, cx } from '@/lib/client';
-import { fileUrl, pageState, type Book, type Child, type RunSummary } from '@/lib/types';
+import { fileUrl, pageState, type Book, type Person, type RunSummary } from '@/lib/types';
 
 import { CheckIcon, PlusIcon } from '../icons';
 import ui from '../ui.module.css';
-import { ChildPanel } from './ChildPanel';
 import styles from './Library.module.css';
+import { RunPanel } from './RunPanel';
 
 interface Props {
   books: Book[];
-  initialChildren: Child[];
+  initialPeople: Person[];
   runs: RunSummary[];
   price: number;
 }
 
-export function Library({ books, initialChildren, runs, price }: Props) {
+export function Library({ books, initialPeople, runs, price }: Props) {
   const router = useRouter();
   const [selected, setSelected] = useState<string | null>(books[0]?.id ?? null);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-
 
   async function importPdf(file: File) {
     setImporting(true);
@@ -91,7 +90,7 @@ export function Library({ books, initialChildren, runs, price }: Props) {
         <section className={styles.runs}>
           <h2 className={ui.panelTitle}>Recent runs</h2>
           {runs.length === 0 ? (
-            <p className={ui.muted}>Nothing generated yet. Choose a book and a child on the right.</p>
+            <p className={ui.muted}>Nothing generated yet. Choose a book and who plays whom on the right.</p>
           ) : (
             <ul className={styles.runList}>
               {runs.slice(0, 12).map((run) => (
@@ -104,7 +103,7 @@ export function Library({ books, initialChildren, runs, price }: Props) {
                     <span className={styles.runText}>
                       <strong>{run.bookTitle}</strong>
                       <span className={ui.muted} suppressHydrationWarning>
-                        {run.childName} · {ago(run.createdAt)}
+                        {run.people} · {ago(run.createdAt)}
                       </span>
                     </span>
                     <RunChip run={run} />
@@ -117,7 +116,7 @@ export function Library({ books, initialChildren, runs, price }: Props) {
       </div>
 
       <aside className={styles.side}>
-        <ChildPanel book={books.find((b) => b.id === selected) ?? null} initialChildren={initialChildren} price={price} />
+        <RunPanel books={books} selected={selected} onSelect={setSelected} initialPeople={initialPeople} price={price} />
       </aside>
     </main>
   );
@@ -125,8 +124,8 @@ export function Library({ books, initialChildren, runs, price }: Props) {
 
 function BookCard({ book, selected, onSelect }: { book: Book; selected: boolean; onSelect: () => void }) {
   const cover = book.pages.find((p) => p.kind === 'cover') ?? book.pages[0];
-  const heroPages = book.pages.filter((p) => ['ready', 'needsBox'].includes(pageState(p)));
-  const ready = heroPages.filter((p) => pageState(p) === 'ready').length;
+  const castPages = book.pages.filter((p) => ['ready', 'needsBox'].includes(pageState(book, p)));
+  const ready = castPages.filter((p) => pageState(book, p) === 'ready').length;
   const story = book.pages.filter((p) => p.kind !== 'skip').length;
   return (
     <li className={cx(styles.card, book.pageWidth > book.pageHeight && styles.cardWide, selected && styles.cardSelected)}>
@@ -137,8 +136,8 @@ function BookCard({ book, selected, onSelect }: { book: Book; selected: boolean;
         </span>
         <span className={styles.cardTitle}>{book.title}</span>
         <span className={styles.cardMeta}>
-          <span className={cx(ui.dot, ready === heroPages.length ? ui.dotOk : ui.dotWarn)} />
-          {story} pages · {ready}/{heroPages.length} main-character pages ready
+          <span className={cx(ui.dot, castPages.length && ready === castPages.length ? ui.dotOk : ui.dotWarn)} />
+          {story} pages · {book.characters.length} {book.characters.length === 1 ? 'character' : 'characters'} · {ready}/{castPages.length} ready
         </span>
       </Link>
       <button
@@ -156,6 +155,6 @@ function BookCard({ book, selected, onSelect }: { book: Book; selected: boolean;
 
 function RunChip({ run }: { run: RunSummary }) {
   if (run.status === 'done') return <span className={cx(ui.chip, ui.sage)}>Done · {run.done}/{run.total}</span>;
-  if (run.status === 'review') return <span className={cx(ui.chip, ui.butter)}>Check character</span>;
-  return <span className={cx(ui.chip, ui.sky)}>{run.status === 'character' ? 'Drawing character' : `Pages ${run.done}/${run.total}`}</span>;
+  if (run.status === 'review') return <span className={cx(ui.chip, ui.butter)}>Check drawings</span>;
+  return <span className={cx(ui.chip, ui.sky)}>{run.status === 'character' ? 'Drawing people' : `Pages ${run.done}/${run.total}`}</span>;
 }
