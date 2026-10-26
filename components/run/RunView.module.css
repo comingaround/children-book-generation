@@ -333,3 +333,35 @@
     align-items: flex-start;
   }
 }
+
+/* Phones: header, step 1 and the page cards wrap instead of scrolling sideways. */
+@media (max-width: 700px) {
+  .head,
+  .castHead,
+  .sectionHead {
+    flex-wrap: wrap;
+  }
+
+  .titles {
+    flex-basis: 100%;
+    order: -1;
+    padding-left: 0;
+  }
+
+  .photo img {
+    width: 96px;
+    height: 124px;
+  }
+
+  .drawing img,
+  .placeholder {
+    width: 168px;
+    height: 224px;
+  }
+
+  .pageCard,
+  .pageCardWide {
+    flex-basis: 100%;
+    max-width: none;
+  }
+}

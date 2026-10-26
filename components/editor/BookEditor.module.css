@@ -324,3 +324,15 @@
     flex-basis: auto;
   }
 }
+
+/* Phones: the header wraps, the title gets its own row. */
+@media (max-width: 700px) {
+  .head {
+    flex-wrap: wrap;
+  }
+
+  .title {
+    flex-basis: 100%;
+    order: -1;
+  }
+}
