@@ -439,6 +439,20 @@ export function BookEditor({ initial }: { initial: Book }) {
                 </label>
                 <label className={ui.switchRow}>
                   <span className={styles.switchText}>
+                    Edit a close-up around the box
+                    <span className={ui.help}>The AI gets only the area around the main character, enlarged: sharper faces on small figures, pose kept better</span>
+                  </span>
+                  <input type="checkbox" className={ui.switch} checked={book.settings.closeUp !== false} onChange={(e) => setSettings({ closeUp: e.target.checked })} />
+                </label>
+                <label className={ui.switchRow}>
+                  <span className={styles.switchText}>
+                    Check each page automatically
+                    <span className={ui.help}>AI compares each result with the original (pose, clothing, likeness) and redraws once if something is off</span>
+                  </span>
+                  <input type="checkbox" className={ui.switch} checked={book.settings.autoCheck !== false} onChange={(e) => setSettings({ autoCheck: e.target.checked })} />
+                </label>
+                <label className={ui.switchRow}>
+                  <span className={styles.switchText}>
                     White outline on text
                     <span className={ui.help}>For text set over busy pictures</span>
                   </span>

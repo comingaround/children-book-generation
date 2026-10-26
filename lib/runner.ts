@@ -2,10 +2,22 @@ import 'server-only';
 
 import sharp from 'sharp';
 
-import { generateImage } from './ai/gemini';
-import { characterPrompt, pagePrompt } from './ai/prompts';
+import { generateImage, generateJson } from './ai/gemini';
+import { characterPrompt, checkPassed, pageCheckPrompt, pageCheckSchema, pagePrompt, type PageCheck } from './ai/prompts';
 import { HttpError } from './http-error';
-import { blendInBox, forModel, headOf, padToRatio, toJpeg, unpad } from './images';
+import {
+  blendInBox,
+  boxInRegion,
+  closeUpRegion,
+  cutRegion,
+  forModel,
+  headOf,
+  padToRatio,
+  pasteRegion,
+  toJpeg,
+  unpad,
+  type Region,
+} from './images';
 import {
   chosenFile,
   getRun,
@@ -18,7 +30,7 @@ import {
   saveRun,
   writeFileIn,
 } from './store';
-import { FIX_MAX, type Book, type Page, type Run, type RunStep } from './types';
+import { FIX_MAX, type Book, type Child, type Page, type Run, type RunStep } from './types';
 
 /**
  * A run lives in the dev server's memory while it works and on disk in data/runs/<id>/run.json,
@@ -207,44 +219,108 @@ async function pumpPages(runId: string): Promise<void> {
   }
 }
 
-async function drawPage(runId: string, index: number): Promise<void> {
+/** The page with the child in place, plus the area around the main character before and after (for the check). */
+interface Drawn {
+  result: Buffer;
+  before: Buffer;
+  after: Buffer;
+}
+
+/**
+ * One image call for a page. With a box and close-ups on, only the area around the box is
+ * sent (enlarged), so the figure is big in the model's view: sharper faces on small figures
+ * and pose kept better. The answer goes back into the page with a soft edge.
+ */
+async function render(book: Book, page: Page, child: Child, run: Run, fix: string | null, onRetry: (a: number, of: number) => void): Promise<Drawn> {
+  const art = await readDataFile(`books/${book.id}/${page.image}`);
+  const { imageWidth: w, imageHeight: h } = page;
+  const head = await forModel(await headOf(await readDataFile(chosenFile(run.character)!)), 1024);
+  const photo = await forModel(await readDataFile(child.photo!), 1024);
+  const closeUp = !!page.box && book.settings.closeUp !== false;
+
+  const region: Region = closeUp ? closeUpRegion(page.box!, w, h) : { left: 0, top: 0, width: w, height: h };
+  const source = closeUp ? await cutRegion(art, region) : art;
+  const padded = await padToRatio(source);
+  const box = page.box ? (closeUp ? boxInRegion(page.box, region, w, h) : page.box) : null;
+
+  const answer = await generateImage([padded.image, head, photo], pagePrompt(book, page, child, fix, { closeUp, box }), {
+    aspectRatio: padded.ratio,
+    onRetry,
+  });
+  const edited = await unpad(answer, padded.crop, region.width, region.height);
+  const before = await sharp(art).extract(region).png().toBuffer();
+
+  // Keep the original outside the main character's box; without that setting, still feather
+  // the close-up's edge so it melts into the page.
+  const keepBox = book.settings.keepOutsideBox && box ? box : closeUp ? { x: 3, y: 3, w: 94, h: 94 } : null;
+  const after = keepBox ? await blendInBox(before, edited, keepBox, region.width, region.height) : edited;
+  const result = closeUp ? await pasteRegion(art, after, region) : after;
+  return { result, before, after };
+}
+
+/** The text model compares before and after; null when the check itself fails (never blocks a page). */
+async function checkPage(book: Book, page: Page, run: Run, drawn: Drawn): Promise<PageCheck | null> {
+  try {
+    const head = await forModel(await headOf(await readDataFile(chosenFile(run.character)!)), 768);
+    return await generateJson<PageCheck>(
+      [await forModel(drawn.before, 1024), await forModel(drawn.after, 1024), head],
+      pageCheckPrompt(book, page),
+      pageCheckSchema
+    );
+  } catch (err) {
+    console.warn('[run] check failed', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+/** `auto` marks the one automatic redraw after a failed check, so it can't loop. */
+async function drawPage(runId: string, index: number, auto = false): Promise<void> {
   const started = Date.now();
   const run = await mutate(runId, (r) => {
     r.pages[index].status = 'working';
-    r.pages[index].message = null;
+    if (!auto) r.pages[index].message = null;
   });
   try {
     const book = await requireBook(run.bookId);
     const child = await requireChild(run.childId);
     const page = pageOf(book, index);
-    const art = await readDataFile(`books/${book.id}/${page.image}`);
-    const padded = await padToRatio(art);
-    const images = [
-      padded.image,
-      await forModel(await headOf(await readDataFile(chosenFile(run.character)!)), 1024),
-      await forModel(await readDataFile(child.photo!), 1024),
-    ];
-
     const fix = run.pages[index].fix ?? null;
-    const answer = await generateImage(images, pagePrompt(book, page, child, fix), {
-      aspectRatio: padded.ratio,
-      onRetry: (a, of) => void mutate(runId, (r) => void (r.pages[index].message = retryNote(a, of))),
-    });
 
-    let result = await unpad(answer, padded.crop, page.imageWidth, page.imageHeight);
-    if (book.settings.keepOutsideBox && page.box) result = await blendInBox(art, result, page.box, page.imageWidth, page.imageHeight);
+    const drawn = await render(book, page, child, run, fix, (a, of) => void mutate(runId, (r) => void (r.pages[index].message = retryNote(a, of))));
+    const file = await writeFileIn(`runs/${runId}/pages/${String(index).padStart(2, '0')}-${Date.now().toString(36)}.jpg`, await toJpeg(drawn.result));
 
-    const file = await writeFileIn(`runs/${runId}/pages/${String(index).padStart(2, '0')}-${Date.now().toString(36)}.jpg`, await toJpeg(result));
+    let check: PageCheck | null = null;
+    if (book.settings.autoCheck !== false) {
+      await mutate(runId, (r) => void (r.pages[index].message = 'Checking pose, clothing and likeness…'));
+      check = await checkPage(book, page, run, drawn);
+    }
+    const ok = !check || checkPassed(check);
+    const correction = check && !ok ? check.correction.trim().slice(0, FIX_MAX) : '';
+    const redraw = !ok && !auto && !!correction;
+
     await mutate(runId, (r) => {
       const step = r.pages[index];
       r.images++;
-      step.attempts.push({ file, at: new Date().toISOString(), ms: Date.now() - started, ...(fix ? { fix } : {}) });
+      step.attempts.push({
+        file,
+        at: new Date().toISOString(),
+        ms: Date.now() - started,
+        ...(fix ? { fix, ...(auto ? { auto: true } : {}) } : {}),
+        ...(check ? { check: { ok, note: ok ? 'Pose, clothing and likeness look right' : correction || 'Something differs from the original' } } : {}),
+      });
       step.selected = step.attempts.length - 1;
-      step.status = 'done';
-      step.message = null;
-      step.fix = null;
+      if (redraw) {
+        // Keep a person's correction and add the check's to it.
+        step.fix = fix ? `${fix}; ${correction}` : correction;
+        step.message = `Check: ${correction} — drawing it again`;
+      } else {
+        step.status = 'done';
+        step.message = null;
+        step.fix = null;
+      }
     });
     busyRetried.delete(`${runId}:${index}`);
+    if (redraw) return drawPage(runId, index, true);
   } catch (err) {
     console.error(`[run] page ${index}`, err instanceof Error ? err.message : err);
     const key = `${runId}:${index}`;
@@ -255,7 +331,7 @@ async function drawPage(runId: string, index: number): Promise<void> {
         r.pages[index].message = 'Google is busy — trying again in 30 s';
       });
       await new Promise((resolve) => setTimeout(resolve, BUSY_RETRY_MS));
-      return drawPage(runId, index);
+      return drawPage(runId, index, auto);
     }
     busyRetried.delete(key);
     await mutate(runId, (r) => {

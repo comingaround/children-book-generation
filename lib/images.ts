@@ -90,6 +90,61 @@ export async function blendInBox(original: Buffer, edited: Buffer, box: Box, wid
   return sharp(original).composite([{ input: cutout }]).toBuffer();
 }
 
+// ---- close-up around the main character ----------------------------------------------
+
+/** A rectangle in pixels of the art. */
+export interface Region {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * The area sent to the model instead of the whole page: the box plus a generous margin, so the
+ * model still sees what the character is doing and where. At least 30% of the shorter side,
+ * so a tiny figure still comes with some of its surroundings.
+ */
+export function closeUpRegion(box: Box, width: number, height: number): Region {
+  const bx = (box.x / 100) * width;
+  const by = (box.y / 100) * height;
+  const bw = (box.w / 100) * width;
+  const bh = (box.h / 100) * height;
+  const margin = Math.max(bw, bh) * 0.6;
+  const min = Math.min(width, height) * 0.3;
+
+  // Grow around the centre, then slide back inside the art if it pokes out.
+  const span = (start: number, size: number, limit: number) => {
+    const length = Math.min(Math.max(size + 2 * margin, min), limit);
+    const from = Math.min(Math.max(start + size / 2 - length / 2, 0), limit - length);
+    return [Math.round(from), Math.round(length)];
+  };
+  const [left, w] = span(bx, bw, width);
+  const [top, h] = span(by, bh, height);
+  return { left, top, width: w, height: h };
+}
+
+/** The box in percent of a region instead of the whole art. */
+export function boxInRegion(box: Box, region: Region, width: number, height: number): Box {
+  return {
+    x: (((box.x / 100) * width - region.left) / region.width) * 100,
+    y: (((box.y / 100) * height - region.top) / region.height) * 100,
+    w: (((box.w / 100) * width) / region.width) * 100,
+    h: (((box.h / 100) * height) / region.height) * 100,
+  };
+}
+
+/** Cuts a region out, enlarged to at least `min` px on its long side so the model sees detail. */
+export async function cutRegion(art: Buffer, region: Region, min = 1280): Promise<Buffer> {
+  const cut = sharp(art).extract(region);
+  const long = Math.max(region.width, region.height);
+  return long < min ? cut.resize({ width: Math.round((region.width / long) * min), kernel: 'lanczos3' }).png().toBuffer() : cut.png().toBuffer();
+}
+
+/** Puts an edited region (already at the region's size) back into the art. */
+export const pasteRegion = (art: Buffer, edited: Buffer, region: Region) =>
+  sharp(art).composite([{ input: edited, left: region.left, top: region.top }]).toBuffer();
+
 /**
  * Head and shoulders of a standing character drawing (the top part of the frame). Pages get
  * only this, so the model can take face, hair and skin from it but has no outfit to copy.

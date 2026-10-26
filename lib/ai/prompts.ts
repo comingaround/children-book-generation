@@ -36,11 +36,19 @@ export function characterPrompt(book: Book, child: Child, withHeroCrop: boolean)
 
 /**
  * Step 2, per page: give the original main character the child's face, hair and skin; keep
- * their clothing, pose and place. Images: 1 = page art, 2 = head of the approved drawing,
- * 3 = child photo.
+ * their clothing, pose and place. Images: 1 = page art (or a close-up of it around the main
+ * character), 2 = head of the approved drawing, 3 = child photo.
+ * `box` is where the main character is in image 1; for a close-up it's relative to the crop.
  */
-export function pagePrompt(book: Book, page: Page, child: Child, fix?: string | null): string {
+export function pagePrompt(
+  book: Book,
+  page: Page,
+  child: Child,
+  fix?: string | null,
+  view: { closeUp: boolean; box: Box | null } = { closeUp: false, box: page.box }
+): string {
   const s = book.settings;
+  const box = view.box;
   const hero = page.characterHint.trim() || s.protagonistDescription.trim() || "the book's main character";
   const clothing = clothingOn(book, page);
   const pose = page.pose?.trim();
@@ -49,18 +57,63 @@ export function pagePrompt(book: Book, page: Page, child: Child, fix?: string | 
       ? ` The new main character is a ${child.gender} while the original was a ${s.protagonistGender}: change the face and hair accordingly, but keep the clothing and pose.`
       : '';
   return [
-    `Image 1 is a page illustration from the children's picture book "${book.title}". Image 2 shows the head of the new main character, ${who(child)}, drawn in this book's style. Image 3 is a photo of that child, for likeness only.`,
-    `Edit image 1: the main character is ${hero}${page.box ? `, in ${where(page.box)}` : ''}. Give them the face, hair (colour, length and style), skin tone and any glasses from image 2. Take nothing else from image 2.${genderSwap}`,
+    view.closeUp
+      ? `Image 1 is a close-up cut from a page illustration of the children's picture book "${book.title}". Image 2 shows the head of the new main character, ${who(child)}, drawn in this book's style. Image 3 is a photo of that child, for likeness only.`
+      : `Image 1 is a page illustration from the children's picture book "${book.title}". Image 2 shows the head of the new main character, ${who(child)}, drawn in this book's style. Image 3 is a photo of that child, for likeness only.`,
+    `Edit image 1: the main character is ${hero}${box ? `, in ${where(box)}` : ''}. Give them the face, hair (colour, length and style), skin tone and any glasses from image 2. Take nothing else from image 2.${genderSwap}`,
     `Keep their clothing exactly as in image 1${clothing ? ` (${clothing})` : ''}: same garments, colours and patterns.`,
     `Keep their pose and direction exactly as in image 1${pose ? `: ${pose}` : ''}. Same body position, which way they face, where they look, gestures, expression, size and place in the picture.`,
     'Everything else must stay identical to image 1: the other characters, the background, objects, composition, framing, colours and art style. If the main character appears more than once, change every appearance.',
-    page.kind === 'cover' ? 'Keep the book title lettering exactly as it is, letter for letter.' : 'Do not add any text, letters or signatures.',
+    view.closeUp ? 'Keep the same line weight, texture and level of detail as the rest of image 1, so the result blends back into the page.' : '',
+    page.kind === 'cover' ? 'Keep any title lettering exactly as it is, letter for letter.' : 'Do not add any text, letters or signatures.',
     page.scenePrompt.trim() ? `About this scene: ${page.scenePrompt.trim()}` : '',
     fix ? `A correction for this version, which takes priority over anything above: ${fix}` : '',
     'Return the whole illustration at the same framing as image 1.',
   ]
     .filter(Boolean)
     .join('\n');
+}
+
+// ---- automatic check after each page (cheap text model) -----------------------------
+
+export interface PageCheck {
+  samePose: boolean;
+  sameClothing: boolean;
+  looksLikeChild: boolean;
+  restUnchanged: boolean;
+  /** A short instruction for the next attempt; empty when all is well. */
+  correction: string;
+}
+
+export const pageCheckSchema = {
+  type: 'OBJECT',
+  properties: {
+    samePose: { type: 'BOOLEAN' },
+    sameClothing: { type: 'BOOLEAN' },
+    looksLikeChild: { type: 'BOOLEAN' },
+    restUnchanged: { type: 'BOOLEAN' },
+    correction: { type: 'STRING' },
+  },
+  required: ['samePose', 'sameClothing', 'looksLikeChild', 'restUnchanged', 'correction'],
+};
+
+export const checkPassed = (c: PageCheck) => c.samePose && c.sameClothing && c.looksLikeChild && c.restUnchanged;
+
+/** Images: 1 = original (area around the main character), 2 = the result, same area; 3 = the child's head as drawn. */
+export function pageCheckPrompt(book: Book, page: Page): string {
+  const s = book.settings;
+  const clothing = clothingOn(book, page);
+  const pose = page.pose?.trim();
+  return [
+    `Image 1 is part of an original page from the picture book "${book.title}". Image 2 is the same part after the main character (${page.characterHint.trim() || s.protagonistDescription.trim() || 'the main character'}) was redrawn as a different child, whose head is shown in image 3.`,
+    'The redraw should change ONLY their face, hair (colour, length and style), skin tone and glasses, to match image 3.',
+    'Compare image 2 with image 1 and answer in JSON:',
+    `- samePose: same pose and direction as in image 1${pose ? ` (${pose})` : ''}? Which way they face (face, back, profile), where they look, body position and gestures must match. Small drawing differences are fine.`,
+    `- sameClothing: same garments and colours as in image 1${clothing ? ` (${clothing})` : ''}?`,
+    '- looksLikeChild: do their face, hair and skin tone match image 3, rather than the original character?',
+    '- restUnchanged: are the other characters, objects and background the same as in image 1?',
+    '- correction: if anything above is false, ONE short instruction (under 100 characters) for the illustrator to fix it, naming what to match, e.g. "back to the viewer, like the original" or "keep the original red sneakers". Say "the original", never "image 1/2/3". Empty if everything is true.',
+  ].join('\n');
 }
 
 // ---- "Prepare with AI" (cheap text model) -------------------------------------------

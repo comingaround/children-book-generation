@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 
 import { api, cx, money, seconds } from '@/lib/client';
-import { FIX_MAX, fileUrl, type Book, type Child, type Run, type RunStep } from '@/lib/types';
+import { FIX_MAX, fileUrl, type Attempt, type Book, type Child, type Run, type RunStep } from '@/lib/types';
 
 import { BookFonts, BookPage } from '../BookPage';
 import { BackIcon, BookIcon, CheckIcon, RedoIcon, TrashIcon } from '../icons';
@@ -210,11 +210,17 @@ export function RunView({ initial, book, child, price }: { initial: Run; book: B
           {pages.map((page) => {
             const step = run.pages[page.index];
             const file = chosen(step);
+            const shown = step.attempts[step.selected ?? step.attempts.length - 1] as Attempt | undefined;
             const label = page.kind === 'cover' ? 'Cover' : `Page ${page.index}`;
             return (
               <li key={page.index} className={cx(styles.pageCard, book.pageWidth > book.pageHeight && styles.pageCardWide)}>
                 <div className={styles.pageHead}>
                   <strong>{label}</strong>
+                  {shown?.check && step.status === 'done' && (
+                    <span className={cx(ui.chip, shown.check.ok ? ui.sage : ui.peach)} title={shown.check.note}>
+                      {shown.check.ok ? 'Checked' : 'Check failed'}
+                    </span>
+                  )}
                   <StepChip step={step} />
                   {step.attempts.at(-1) && <span className={styles.time}>{seconds(step.attempts.at(-1)!.ms)}</span>}
                 </div>
@@ -246,8 +252,16 @@ export function RunView({ initial, book, child, price }: { initial: Run; book: B
                 )}
                 {step.status === 'working' && file && <p className={cx(ui.help, styles.redrawing)}>{step.message ?? 'Drawing a new version…'}</p>}
 
-                {file && step.attempts[step.selected ?? step.attempts.length - 1]?.fix && (
-                  <p className={cx(ui.help, styles.madeWith)}>Made with: “{step.attempts[step.selected ?? step.attempts.length - 1].fix}”</p>
+                {file && shown?.fix && (
+                  <p className={cx(ui.help, styles.madeWith)}>
+                    {shown.auto ? 'Auto-fixed after the check' : 'Made with'}: “{shown.fix}”
+                  </p>
+                )}
+                {file && shown?.check && !shown.check.ok && step.status === 'done' && (
+                  <p className={cx(ui.notice, ui.noticeError)}>
+                    <span className={ui.dot} />
+                    The check still sees a problem: {shown.check.note}. Type a fix below or pick another version.
+                  </p>
                 )}
 
                 {(step.attempts.length > 0 || step.status === 'error') && (
@@ -281,7 +295,7 @@ export function RunView({ initial, book, child, price }: { initial: Run; book: B
                           className={cx(styles.version, (step.selected ?? step.attempts.length - 1) === i && styles.versionOn)}
                           onClick={() => act(`/api/runs/${run.id}/pages/${page.index}`, { action: 'select', attempt: i })}
                           aria-pressed={(step.selected ?? step.attempts.length - 1) === i}
-                          title={a.fix ? `Version ${i + 1}: “${a.fix}”` : `Version ${i + 1}`}
+                          title={[`Version ${i + 1}`, a.fix && `${a.auto ? 'auto-fix' : 'fix'}: “${a.fix}”`, a.check && `check: ${a.check.note}`].filter(Boolean).join(' · ')}
                         >
                           {i + 1}
                         </button>
