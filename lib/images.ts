@@ -90,6 +90,15 @@ export async function blendInBox(original: Buffer, edited: Buffer, box: Box, wid
   return sharp(original).composite([{ input: cutout }]).toBuffer();
 }
 
+/**
+ * Head and shoulders of a standing character drawing (the top part of the frame). Pages get
+ * only this, so the model can take face, hair and skin from it but has no outfit to copy.
+ */
+export async function headOf(drawing: Buffer): Promise<Buffer> {
+  const { width = 0, height = 0 } = await sharp(drawing).metadata();
+  return sharp(drawing).extract({ left: 0, top: 0, width, height: Math.round(height * 0.4) }).toBuffer();
+}
+
 export const toJpeg = (input: Buffer) => jpeg(sharp(input).flatten({ background: '#ffffff' }));
 
 /** Small JPEG for strips and cards. */

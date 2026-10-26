@@ -240,6 +240,8 @@ def import_pdf(pdf: Path, book_id: str | None = None) -> str:
             "hasProtagonist": kind != "skip" and not FRONT_MATTER.search(page.get_text()),
             "box": None,
             "characterHint": "",
+            "pose": "",
+            "clothing": "",
             "scenePrompt": "",
             "lines": lines,
         })
@@ -258,6 +260,7 @@ def import_pdf(pdf: Path, book_id: str | None = None) -> str:
             "protagonistName": "",
             "protagonistGender": "boy",
             "protagonistDescription": "",
+            "clothing": "",
             "keepOutsideBox": True,
             "textHalo": False,
         },

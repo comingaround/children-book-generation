@@ -9,6 +9,7 @@ import { api, cx } from '@/lib/client';
 import { fileUrl, pageState, type Book, type BookSettings, type Box, type Page, type PageKind } from '@/lib/types';
 
 import { BookFonts, BookPage } from '../BookPage';
+import { GrowField } from '../GrowField';
 import { BackIcon, SparkIcon, TrashIcon } from '../icons';
 import ui from '../ui.module.css';
 import { BoxEditor } from './BoxEditor';
@@ -84,11 +85,13 @@ export function BookEditor({ initial }: { initial: Book }) {
     change((b) => ({ ...b, pages: b.pages.map((p) => (p.index === index ? { ...p, ...patch } : p)) }));
   const setSettings = (patch: Partial<BookSettings>) => change((b) => ({ ...b, settings: { ...b.settings, ...patch } }));
 
-  async function draftBook(): Promise<BookSettings> {
+  /** `onlyEmpty` keeps whatever is already filled in and adds only the missing fields. */
+  async function draftBook(onlyEmpty = false): Promise<BookSettings> {
     const draft = await api<BookDraft>(`/api/books/${book.id}/draft`, { method: 'POST', json: {} });
-    const settings = { ...book.settings, ...draft };
-    setSettings(draft);
-    return settings;
+    const current = book.settings as unknown as Record<string, unknown>;
+    const patch = onlyEmpty ? Object.fromEntries(Object.entries(draft).filter(([k]) => !current[k])) : draft;
+    setSettings(patch);
+    return { ...book.settings, ...patch };
   }
 
   /** Sends the settings on screen, so a name typed a moment ago is used before autosave runs. */
@@ -100,6 +103,8 @@ export function BookEditor({ initial }: { initial: Book }) {
     setPage(target.index, {
       hasProtagonist: draft.hasProtagonist,
       characterHint: draft.characterHint,
+      pose: draft.pose,
+      clothing: draft.clothingDiffers ? draft.clothing : '',
       scenePrompt: draft.scenePrompt,
       // Never replace a box someone drew by hand.
       ...(draft.box && !target.box ? { box: draft.box } : {}),
@@ -123,11 +128,11 @@ export function BookEditor({ initial }: { initial: Book }) {
     withBusy('all', async () => {
       try {
         let settings = book.settings;
-        if (!settings.protagonistName) {
+        if (!settings.protagonistName || !settings.clothing) {
           setProgress('Reading the book…');
-          settings = await draftBook();
+          settings = await draftBook(true);
         }
-        const todo = book.pages.filter((p) => p.kind !== 'skip' && (!p.box || !p.scenePrompt));
+        const todo = book.pages.filter((p) => p.kind !== 'skip' && (!p.box || !p.scenePrompt || (p.hasProtagonist && !p.pose)));
         for (const [i, p] of todo.entries()) {
           setProgress(`Drafting page ${i + 1} of ${todo.length}…`);
           setCurrent(p.index);
@@ -286,24 +291,42 @@ export function BookEditor({ initial }: { initial: Book }) {
                     </button>
                   </div>
                   <span className={ui.help}>
-                    The main character is the one replaced by the child. <strong>Find with AI</strong> looks at this page, draws the box around them and fills in
-                    the two fields below; check and correct it.
+                    The main character is the one replaced by the child: they get the child&apos;s face, hair and skin tone, and keep their clothing and pose.{' '}
+                    <strong>Find with AI</strong> looks at this page, draws the box and fills in the fields below; check and correct it.
                   </span>
                   <label className={ui.field}>
                     <span className={ui.label}>Which one is the main character</span>
-                    <input
-                      className={ui.input}
+                    <GrowField
+                      rows={1}
                       value={page.characterHint}
-                      onChange={(e) => setPage(page.index, { characterHint: e.target.value })}
+                      onChange={(v) => setPage(page.index, { characterHint: v })}
                       placeholder="the boy in the yellow T-shirt on the tricycle, left"
                     />
                   </label>
                   <label className={ui.field}>
+                    <span className={ui.label}>Pose and direction (kept)</span>
+                    <GrowField
+                      value={page.pose ?? ''}
+                      onChange={(v) => setPage(page.index, { pose: v })}
+                      placeholder="standing, back to the viewer, looking left at the old trike, arms down"
+                    />
+                    <span className={ui.help}>Which way they face, where they look, what the hands do.</span>
+                  </label>
+                  <label className={ui.field}>
+                    <span className={ui.label}>Clothing on this page (kept)</span>
+                    <GrowField
+                      rows={1}
+                      value={page.clothing ?? ''}
+                      onChange={(v) => setPage(page.index, { clothing: v })}
+                      placeholder={book.settings.clothing ? `Same as the book: ${book.settings.clothing}` : 'Same as the book'}
+                    />
+                    <span className={ui.help}>Leave empty when it&apos;s their usual outfit; fill in when this page differs (pyjamas, a coat…).</span>
+                  </label>
+                  <label className={ui.field}>
                     <span className={ui.label}>Scene</span>
-                    <textarea
-                      className={ui.textarea}
+                    <GrowField
                       value={page.scenePrompt}
-                      onChange={(e) => setPage(page.index, { scenePrompt: e.target.value })}
+                      onChange={(v) => setPage(page.index, { scenePrompt: v })}
                       placeholder="Where we are, what the main character is doing, who else is there."
                     />
                   </label>
@@ -354,7 +377,7 @@ export function BookEditor({ initial }: { initial: Book }) {
                 </div>
                 <span className={ui.help}>
                   The book&apos;s main character is the one replaced by the child. <strong>Fill in with AI</strong> reads the cover and the text to find their
-                  name, look and the art style.
+                  name, look, clothing and the art style.
                 </span>
                 <div className={styles.pair}>
                   <label className={ui.field}>
@@ -372,15 +395,27 @@ export function BookEditor({ initial }: { initial: Book }) {
                     </div>
                   </div>
                 </div>
+                <div className={styles.changes}>
+                  <span className={ui.label}>Changes to the child</span>
+                  <span>Face, hair colour and style, skin tone and glasses, taken from the child&apos;s photo.</span>
+                </div>
                 <label className={ui.field}>
-                  <span className={ui.label}>Look</span>
-                  <textarea
-                    className={ui.textarea}
+                  <span className={ui.label}>How to recognise them in the book</span>
+                  <GrowField
                     value={book.settings.protagonistDescription}
-                    onChange={(e) => setSettings({ protagonistDescription: e.target.value })}
-                    placeholder="a 6-year-old boy with short brown hair, yellow T-shirt and blue jeans"
+                    onChange={(v) => setSettings({ protagonistDescription: v })}
+                    placeholder="a 6-year-old boy with short brown hair"
                   />
-                  <span className={ui.help}>Age, hair and usual outfit. The child keeps this outfit on every page.</span>
+                  <span className={ui.help}>Age, build and hair of the original character; leave clothing out.</span>
+                </label>
+                <label className={ui.field}>
+                  <span className={ui.label}>Clothing (kept)</span>
+                  <GrowField
+                    value={book.settings.clothing ?? ''}
+                    onChange={(v) => setSettings({ clothing: v })}
+                    placeholder="yellow T-shirt with red trim, blue jeans, red sneakers"
+                  />
+                  <span className={ui.help}>Their usual outfit. The child wears exactly this; a page can override it.</span>
                 </label>
                 <span className={ui.help}>Changing he/she in the text for a child of the other gender is not built yet.</span>
               </div>
@@ -389,10 +424,9 @@ export function BookEditor({ initial }: { initial: Book }) {
                 <span className={ui.eyebrow}>Style</span>
                 <label className={ui.field}>
                   <span className={ui.label}>Art style</span>
-                  <textarea
-                    className={ui.textarea}
+                  <GrowField
                     value={book.settings.artStyle}
-                    onChange={(e) => setSettings({ artStyle: e.target.value })}
+                    onChange={(v) => setSettings({ artStyle: v })}
                     placeholder="soft watercolour with fine ink outlines and warm pastel washes"
                   />
                 </label>

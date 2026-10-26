@@ -18,8 +18,8 @@ export async function PUT(req: Request, { params }: Ctx) {
     for (const edit of body.pages ?? []) {
       const page = book.pages.find((p) => p.index === edit.index);
       if (!page) throw new HttpError(400, `No page ${edit.index}`);
-      const { kind, hasProtagonist, box, characterHint, scenePrompt } = edit;
-      Object.assign(page, { kind, hasProtagonist, box, characterHint, scenePrompt });
+      const { kind, hasProtagonist, box, characterHint, pose, clothing, scenePrompt } = edit;
+      Object.assign(page, { kind, hasProtagonist, box, characterHint, pose, clothing, scenePrompt });
     }
     await saveBook(book);
     return Response.json(book);

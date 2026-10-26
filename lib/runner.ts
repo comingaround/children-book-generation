@@ -5,7 +5,7 @@ import sharp from 'sharp';
 import { generateImage } from './ai/gemini';
 import { characterPrompt, pagePrompt } from './ai/prompts';
 import { HttpError } from './http-error';
-import { blendInBox, forModel, padToRatio, toJpeg, unpad } from './images';
+import { blendInBox, forModel, headOf, padToRatio, toJpeg, unpad } from './images';
 import {
   chosenFile,
   getRun,
@@ -221,7 +221,7 @@ async function drawPage(runId: string, index: number): Promise<void> {
     const padded = await padToRatio(art);
     const images = [
       padded.image,
-      await forModel(await readDataFile(chosenFile(run.character)!), 1024),
+      await forModel(await headOf(await readDataFile(chosenFile(run.character)!)), 1024),
       await forModel(await readDataFile(child.photo!), 1024),
     ];
 

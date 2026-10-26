@@ -203,6 +203,17 @@
   min-width: 0;
 }
 
+/* What the child brings: a quiet note, not a field. */
+.changes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--r-md);
+  background: var(--wash-lilac);
+  font-size: var(--text-sm);
+}
+
 .boxRow {
   display: flex;
   align-items: center;

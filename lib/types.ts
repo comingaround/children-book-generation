@@ -46,6 +46,10 @@ export interface Page {
   hasProtagonist: boolean;
   box: Box | null;
   characterHint: string;
+  /** Pose and direction of the main character here, e.g. "back to the viewer, looking left". */
+  pose?: string;
+  /** Outfit on this page when it differs from the book's; empty = the book's clothing. */
+  clothing?: string;
   scenePrompt: string;
   lines: TextLine[];
 }
@@ -54,7 +58,10 @@ export interface BookSettings {
   artStyle: string;
   protagonistName: string;
   protagonistGender: Gender;
+  /** How to recognise the main character, without clothing: age, build, hair. */
   protagonistDescription: string;
+  /** Their usual outfit; kept on every page. */
+  clothing?: string;
   /** Paste the AI result back only inside the hero's box, so the rest stays pixel-identical. */
   keepOutsideBox: boolean;
   /** White outline around the page text, for text set over busy art. */
