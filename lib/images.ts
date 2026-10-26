@@ -68,26 +68,37 @@ export async function unpad(answer: Buffer, crop: Padded['crop'], width: number,
 }
 
 /**
- * Keeps the original everywhere except a soft-edged area around the hero's box, so the
+ * Keeps the original everywhere except soft-edged areas around the characters' boxes, so the
  * background, other characters and colours stay pixel-identical to the book.
  */
-export async function blendInBox(original: Buffer, edited: Buffer, box: Box, width: number, height: number): Promise<Buffer> {
-  // Grow the box a little: the model often redraws hair or a hand just past it.
-  const grow = 0.12;
-  const x = Math.max(0, (box.x - box.w * grow) / 100) * width;
-  const y = Math.max(0, (box.y - box.h * grow) / 100) * height;
-  const x2 = Math.min(1, (box.x + box.w * (1 + grow)) / 100) * width;
-  const y2 = Math.min(1, (box.y + box.h * (1 + grow)) / 100) * height;
+export async function blendInBox(original: Buffer, edited: Buffer, boxes: Box | Box[], width: number, height: number): Promise<Buffer> {
   const feather = Math.max(4, Math.round(Math.min(width, height) * 0.015));
-
+  const rects = (Array.isArray(boxes) ? boxes : [boxes]).map((box) => {
+    // Grow the box a little: the model often redraws hair or a hand just past it.
+    const grow = 0.12;
+    const x = Math.max(0, (box.x - box.w * grow) / 100) * width;
+    const y = Math.max(0, (box.y - box.h * grow) / 100) * height;
+    const x2 = Math.min(1, (box.x + box.w * (1 + grow)) / 100) * width;
+    const y2 = Math.min(1, (box.y + box.h * (1 + grow)) / 100) * height;
+    return `<rect x="${x + feather}" y="${y + feather}" width="${Math.max(1, x2 - x - 2 * feather)}" height="${Math.max(1, y2 - y - 2 * feather)}" rx="${feather * 2}" fill="#fff"/>`;
+  });
   const mask = Buffer.from(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
       <defs><filter id="f" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="${feather}"/></filter></defs>
-      <rect x="${x + feather}" y="${y + feather}" width="${Math.max(1, x2 - x - 2 * feather)}" height="${Math.max(1, y2 - y - 2 * feather)}" rx="${feather * 2}" fill="#fff" filter="url(#f)"/>
+      <g filter="url(#f)">${rects.join('')}</g>
     </svg>`
   );
   const cutout = await sharp(edited).ensureAlpha().composite([{ input: mask, blend: 'dest-in' }]).png().toBuffer();
   return sharp(original).composite([{ input: cutout }]).toBuffer();
+}
+
+/** The smallest box around several boxes. */
+export function unionBox(boxes: Box[]): Box {
+  const x = Math.min(...boxes.map((b) => b.x));
+  const y = Math.min(...boxes.map((b) => b.y));
+  const x2 = Math.max(...boxes.map((b) => b.x + b.w));
+  const y2 = Math.max(...boxes.map((b) => b.y + b.h));
+  return { x, y, w: x2 - x, h: y2 - y };
 }
 
 // ---- close-up around the main character ----------------------------------------------

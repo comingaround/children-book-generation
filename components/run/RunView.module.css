@@ -185,7 +185,7 @@
 
 .sectionHead {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--space-4);
   font-size: var(--text-sm);
 }
@@ -260,6 +260,15 @@
 
 .madeWith {
   color: var(--ai-ink);
+}
+
+.modeSwitch {
+  flex: 0 0 auto;
+}
+
+.modeSwitch button {
+  height: 30px;
+  font-size: var(--text-xs);
 }
 
 /* The optional correction sent with the next Regenerate. */

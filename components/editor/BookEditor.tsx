@@ -559,7 +559,7 @@ export function BookEditor({ initial }: { initial: Book }) {
                 />
                 <Toggle
                   label="Check each character automatically"
-                  help="AI compares each result with the original (pose, clothing, style, likeness) and redraws once if something is off"
+                  help="AI compares each result with the original (pose, clothing, style, likeness) and tells you what's off. It never redraws by itself"
                   checked={book.settings.autoCheck !== false}
                   onChange={(v) => setSettings({ autoCheck: v })}
                 />

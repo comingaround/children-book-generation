@@ -61,6 +61,15 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
     setFixes((f) => ({ ...f, [index]: '' }));
   }
 
+  async function switchTogether(together: boolean) {
+    setError(null);
+    try {
+      setRun(await api<Run>(`/api/runs/${run.id}`, { method: 'PATCH', json: { together } }));
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
   async function remove() {
     if (!window.confirm('Delete this run and its generated images?')) return;
     await api(`/api/runs/${run.id}`, { method: 'DELETE' });
@@ -212,6 +221,16 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
       <section className={styles.pagesSection}>
         <div className={styles.sectionHead}>
           <span className={ui.eyebrow}>Step 2 · Pages</span>
+          {run.cast.length > 1 && (
+            <div className={cx(ui.segmented, styles.modeSwitch)} role="group" aria-label="How characters on a page are drawn">
+              <button className={ui.segment} aria-pressed={!run.together} onClick={() => switchTogether(false)} title="One image per character: best detail">
+                One by one
+              </button>
+              <button className={ui.segment} aria-pressed={!!run.together} onClick={() => switchTogether(true)} title="One image per page for everyone: cheaper, faces smaller">
+                All at once
+              </button>
+            </div>
+          )}
           <span className={ui.muted}>
             {done}/{pages.length} done · drag across a page to compare
           </span>
@@ -318,7 +337,7 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
                           className={cx(styles.version, (step.selected ?? step.attempts.length - 1) === i && styles.versionOn)}
                           onClick={() => act(`/api/runs/${run.id}/pages/${page.index}`, { action: 'select', attempt: i })}
                           aria-pressed={(step.selected ?? step.attempts.length - 1) === i}
-                          title={[`Version ${i + 1}`, a.fix && `${a.auto ? 'auto-fix' : 'fix'}: “${a.fix}”`, a.check && `check: ${a.check.note}`].filter(Boolean).join(' · ')}
+                          title={[`Version ${i + 1}`, a.together && 'all at once', a.fix && `${a.auto ? 'auto-fix' : 'fix'}: “${a.fix}”`, a.check && `check: ${a.check.note}`].filter(Boolean).join(' · ')}
                         >
                           {i + 1}
                         </button>

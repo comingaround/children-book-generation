@@ -9,16 +9,17 @@ export async function GET() {
 
 /**
  * `assignments`: which person replaces which book character. `pages`: 'test' = cover + 3 story
- * pages, 'all' = every page with an assigned character, or explicit indexes.
+ * pages, 'all' = every page with an assigned character, or explicit indexes. `together`: all
+ * characters on a page in one image call.
  */
 export async function POST(req: Request) {
   return respond('runs:create', { status: 500, message: 'Could not start the run' }, async () => {
-    const body = (await req.json()) as { bookId?: string; assignments?: Assignment[]; pages?: 'test' | 'all' | number[]; reuseDrawings?: boolean };
+    const body = (await req.json()) as { bookId?: string; assignments?: Assignment[]; pages?: 'test' | 'all' | number[]; reuseDrawings?: boolean; together?: boolean };
     if (!body.bookId) throw new HttpError(400, 'Choose a book');
     const assignments = (body.assignments ?? []).filter((a) => a.characterId && a.personId);
     const book = await requireBook(body.bookId);
     const ids = assignments.map((a) => a.characterId);
     const pages = Array.isArray(body.pages) ? body.pages : testPages(book, body.pages === 'all' ? 'all' : 3, ids);
-    return Response.json(await createRun(book.id, assignments, pages, body.reuseDrawings !== false));
+    return Response.json(await createRun(book.id, assignments, pages, body.reuseDrawings !== false, body.together === true));
   });
 }

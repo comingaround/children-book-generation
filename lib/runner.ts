@@ -3,7 +3,7 @@ import 'server-only';
 import sharp from 'sharp';
 
 import { generateImage, generateJson } from './ai/gemini';
-import { characterPrompt, checkPassed, pageCheckPrompt, pageCheckSchema, pagePrompt, type PageCheck } from './ai/prompts';
+import { characterPrompt, checkPassed, pageCheckPrompt, pageCheckSchema, pagePrompt, pagePromptTogether, type PageCheck } from './ai/prompts';
 import { HttpError } from './http-error';
 import {
   blendInBox,
@@ -15,6 +15,7 @@ import {
   padToRatio,
   pasteRegion,
   toJpeg,
+  unionBox,
   unpad,
   type Region,
 } from './images';
@@ -102,7 +103,8 @@ export interface Assignment {
   personId: string;
 }
 
-export async function createRun(bookId: string, assignments: Assignment[], pageIndexes: number[], reuseDrawings: boolean): Promise<Run> {
+/** `together`: every character on a page in one image call instead of one call each. */
+export async function createRun(bookId: string, assignments: Assignment[], pageIndexes: number[], reuseDrawings: boolean, together = false): Promise<Run> {
   const book = await requireBook(bookId);
   if (!assignments.length) throw new HttpError(400, 'Choose a person for at least one character');
   if (!pageIndexes.length) throw new HttpError(400, 'None of these characters are on any page yet');
@@ -118,6 +120,7 @@ export async function createRun(bookId: string, assignments: Assignment[], pageI
     createdAt: new Date().toISOString(),
     status: 'character',
     pageIndexes,
+    together,
     cast: [],
     pages: Object.fromEntries(pageIndexes.map((i) => [String(i), emptyStep('waiting')])),
     images: 0,
@@ -311,12 +314,53 @@ async function render(
   return { result, before, after };
 }
 
+/** One character on a page, ready to draw. */
+interface Member {
+  character: BookCharacter;
+  person: Person;
+  head: Buffer;
+}
+
+/**
+ * One image call for every character on a page ("all at once"): one close-up around all of
+ * their boxes, each with its own head and photo. Half the images of one-by-one for two people,
+ * at the price of a smaller view of each face. Needs a box for everyone.
+ */
+async function renderTogether(book: Book, page: Page, members: Member[], art: Buffer, fix: string | null, onRetry: (a: number, of: number) => void): Promise<Drawn> {
+  const { imageWidth: w, imageHeight: h } = page;
+  const boxes = members.map((m) => castOn(page, m.character.id).box!);
+  const region = closeUpRegion(unionBox(boxes), w, h);
+  const padded = await padToRatio(await cutRegion(art, region));
+  const inRegion = boxes.map((b) => boxInRegion(b, region, w, h));
+
+  const refs = [];
+  for (const m of members) refs.push(await forModel(m.head, 1024), await forModel(await readDataFile(m.person.photo!), 1024));
+  const prompt = pagePromptTogether(
+    book,
+    page,
+    members.map((m, i) => ({ character: m.character, person: m.person, box: inRegion[i] })),
+    fix
+  );
+  const answer = await generateImage([padded.image, ...refs], prompt, { aspectRatio: padded.ratio, onRetry });
+  const edited = await unpad(answer, padded.crop, region.width, region.height);
+  const before = await sharp(art).extract(region).png().toBuffer();
+  const after = await blendInBox(before, edited, book.settings.keepOutsideBox ? inRegion : [{ x: 3, y: 3, w: 94, h: 94 }], region.width, region.height);
+  return { result: await pasteRegion(art, after, region), before, after };
+}
+
 /** The text model compares before and after; null when the check itself fails (never blocks a page). */
-async function checkCharacter(book: Book, page: Page, character: BookCharacter, head: Buffer, drawn: Drawn): Promise<PageCheck | null> {
+async function checkCharacter(
+  book: Book,
+  page: Page,
+  character: BookCharacter,
+  head: Buffer,
+  drawn: Drawn,
+  alsoChanged: BookCharacter[] = []
+): Promise<PageCheck | null> {
   try {
     return await generateJson<PageCheck>(
       [await forModel(drawn.before, 1024), await forModel(drawn.after, 1024), await forModel(head, 768)],
-      pageCheckPrompt(book, page, character),
+      pageCheckPrompt(book, page, character, alsoChanged),
       pageCheckSchema
     );
   } catch (err) {
@@ -326,8 +370,9 @@ async function checkCharacter(book: Book, page: Page, character: BookCharacter, 
 }
 
 /**
- * One version of a page: every assigned character on it, replaced in turn on the same image.
- * Each is checked, and redrawn once with the check's correction if something is off.
+ * One version of a page. One by one (default): each assigned character replaced in turn on the
+ * same image. All at once (run.together, everyone boxed): a single image call for all of them.
+ * The check only reports; it never redraws (that costs an image — the person decides).
  */
 async function drawPage(runId: string, index: number): Promise<void> {
   const started = Date.now();
@@ -340,50 +385,59 @@ async function drawPage(runId: string, index: number): Promise<void> {
     const book = await requireBook(run.bookId);
     const page = pageOf(book, index);
     const { fix = null, fixFor = null } = run.pages[index];
-    const members = run.cast.filter((c) => page.cast[c.characterId]?.present && book.characters.some((b) => b.id === c.characterId));
+    const members: Member[] = [];
+    for (const step of run.cast) {
+      if (!page.cast[step.characterId]?.present) continue;
+      const character = book.characters.find((b) => b.id === step.characterId);
+      if (!character) continue;
+      members.push({ character, person: await requirePerson(step.personId), head: await headOf(await readDataFile(chosenFile(step)!)) });
+    }
+    const multi = members.length > 1;
+    const label = (m: Member) => (multi ? `${m.character.label}: ` : '');
+    const fixFor_ = (m: Member) => (fix && (!fixFor || fixFor === m.character.id) ? fix : null);
 
     let art: Buffer = await readDataFile(`books/${book.id}/${page.image}`);
+    const checks: { member: Member; drawn: Drawn }[] = [];
+    const together = run.together && multi && book.settings.closeUp !== false && members.every((m) => castOn(page, m.character.id).box);
+
+    if (together) {
+      // A correction for one character is passed on with their name, so the model knows whose it is.
+      const target = fixFor ? members.find((m) => m.character.id === fixFor) : null;
+      const pageFix = fix ? (target ? `${target.character.label}: ${fix}` : fix) : null;
+      await say('Drawing everyone at once…');
+      const drawn = await renderTogether(book, page, members, art, pageFix, (a, of) => void say(retryNote(a, of)));
+      await mutate(runId, (r) => void r.images++);
+      art = drawn.result;
+      for (const m of members) checks.push({ member: m, drawn });
+    } else {
+      for (const m of members) {
+        await say(`${label(m)}drawing…`);
+        const drawn = await render(book, page, m.character, m.person, m.head, art, fixFor_(m), (a, of) => void say(`${label(m)}${retryNote(a, of)}`));
+        await mutate(runId, (r) => void r.images++);
+        art = drawn.result;
+        checks.push({ member: m, drawn });
+      }
+    }
+
     const notes: string[] = [];
-    const fixes: string[] = fix ? [fix] : [];
     let allOk = true;
     let anyCheck = false;
-    let auto = false;
-
-    for (const member of members) {
-      const character = characterOf(book, member.characterId);
-      const person = await requirePerson(member.personId);
-      const head = await headOf(await readDataFile(chosenFile(member)!));
-      const own = fix && (!fixFor || fixFor === character.id) ? fix : null;
-      const multi = members.length > 1 ? `${character.label}: ` : '';
-
-      await say(`${multi}drawing…`);
-      let drawn = await render(book, page, character, person, head, art, own, (a, of) => void say(`${multi}${retryNote(a, of)}`));
-      await mutate(runId, (r) => void r.images++);
-
-      if (book.settings.autoCheck !== false) {
-        await say(`${multi}checking pose, clothing, style and likeness…`);
-        let check = await checkCharacter(book, page, character, head, drawn);
-        const correction = check && !checkPassed(check) ? check.correction.trim().slice(0, FIX_MAX) : '';
-        if (correction) {
-          // One automatic redraw with the check's own description of what went wrong.
-          await say(`${multi}check: ${correction} — drawing again`);
-          const combined = own ? `${own}; ${correction}` : correction;
-          drawn = await render(book, page, character, person, head, art, combined, (a, of) => void say(`${multi}${retryNote(a, of)}`));
-          await mutate(runId, (r) => void r.images++);
-          check = await checkCharacter(book, page, character, head, drawn);
-          fixes.push(`${multi}${correction}`);
-          auto = true;
-        }
-        if (check) {
-          anyCheck = true;
-          const ok = checkPassed(check);
-          allOk &&= ok;
-          notes.push(`${multi}${ok ? (correction ? 'fixed after the check' : 'looks right') : check.correction.trim() || 'something differs from the original'}`);
-        } else {
-          notes.push(`${multi}check unavailable, look yourself`);
-        }
-      }
-      art = drawn.result;
+    if (book.settings.autoCheck !== false) {
+      await say('Checking pose, clothing, style and likeness…');
+      // All at once, everyone changed in the same image: tell each check which others are meant to differ.
+      const results = await Promise.all(
+        checks.map(({ member, drawn }) =>
+          checkCharacter(book, page, member.character, member.head, drawn, together ? members.filter((m) => m !== member).map((m) => m.character) : [])
+        )
+      );
+      results.forEach((check, i) => {
+        const m = checks[i].member;
+        if (!check) return void notes.push(`${label(m)}check unavailable, look yourself`);
+        anyCheck = true;
+        const ok = checkPassed(check);
+        allOk &&= ok;
+        notes.push(`${label(m)}${ok ? 'looks right' : check.correction.trim() || 'something differs from the original'}`);
+      });
     }
 
     const file = await writeFileIn(`runs/${runId}/pages/${String(index).padStart(2, '0')}-${Date.now().toString(36)}.jpg`, await toJpeg(art));
@@ -393,7 +447,8 @@ async function drawPage(runId: string, index: number): Promise<void> {
         file,
         at: new Date().toISOString(),
         ms: Date.now() - started,
-        ...(fixes.length ? { fix: fixes.join('; '), ...(auto ? { auto: true } : {}) } : {}),
+        ...(together ? { together: true } : {}),
+        ...(fix ? { fix: fixFor && multi ? `${members.find((m) => m.character.id === fixFor)?.character.label ?? ''}: ${fix}` : fix } : {}),
         ...(anyCheck ? { check: { ok: allOk, note: notes.join(' · ') } } : {}),
       });
       step.selected = step.attempts.length - 1;
@@ -442,6 +497,8 @@ export async function regeneratePage(runId: string, index: number, fix?: string,
   void pumpPages(runId);
   return run;
 }
+
+export const setTogether = (runId: string, together: boolean) => mutate(runId, (r) => void (r.together = together));
 
 export function selectPageAttempt(runId: string, index: number, attempt: number): Promise<Run> {
   return mutate(runId, (r) => {

@@ -80,6 +80,45 @@ export function pagePrompt(
     .join('\n');
 }
 
+/**
+ * Step 2 with every character on the page in ONE image call ("all at once"). Images: 1 = the
+ * close-up around all of them, then per character a head (drawn) and a photo, in order.
+ * `box` is each character's place in image 1.
+ */
+export function pagePromptTogether(
+  book: Book,
+  page: Page,
+  members: { character: BookCharacter; person: Person; box: Box | null }[],
+  fix?: string | null
+): string {
+  const blocks = members.map(({ character, person, box }, i) => {
+    const cast = castOn(page, character.id);
+    const target = cast.hint.trim() || character.description.trim() || `the book's ${character.label}`;
+    const clothing = clothingOn(character, page);
+    const pose = cast.pose.trim();
+    const head = 2 + i * 2;
+    return [
+      `Person ${i + 1}: ${target}${box ? `, in ${where(box)}` : ''}. Image ${head} shows the head of ${who(person)} drawn in this book's style; image ${head + 1} is their photo, for likeness only.`,
+      `Give this character the face, hair (colour, length and style), skin tone, facial hair and any glasses from image ${head}, and nothing else from it.${
+        character.gender !== person.gender ? ` The new person is a ${person.gender} while the original was a ${character.gender}: change the face and hair accordingly.` : ''
+      }`,
+      `Keep their clothing${clothing ? ` (${clothing})` : ''} and their pose and direction${pose ? ` (${pose})` : ''} exactly as in image 1: same body position, which way they face, where they look, gestures, expression, size and place.`,
+    ].join(' ');
+  });
+  return [
+    `Image 1 is a close-up cut from a page illustration of the picture book "${book.title}". Edit image 1: ${members.length} characters in it get the faces of real people. Each one gets ONLY their own person; never mix, swap or blend features between them.`,
+    ...blocks,
+    styleLine(book),
+    'Everything else must stay identical to image 1: every other character, the background, objects, composition, framing and colours.',
+    page.kind === 'cover' ? 'Keep any title lettering exactly as it is, letter for letter.' : 'Do not add any text, letters or signatures.',
+    page.scenePrompt.trim() ? `About this scene: ${page.scenePrompt.trim()}` : '',
+    fix ? `A correction for this version, which takes priority over anything above: ${fix}` : '',
+    'Return the whole image at the same framing as image 1.',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
 // ---- automatic check after each character (cheap text model) -------------------------
 
 export interface PageCheck {
@@ -108,13 +147,17 @@ export const pageCheckSchema = {
 export const checkPassed = (c: PageCheck) => c.samePose && c.sameClothing && c.sameStyle && c.looksLikePerson && c.restUnchanged;
 
 /** Images: 1 = original (area around the character), 2 = the result, same area; 3 = the person's head as drawn. */
-export function pageCheckPrompt(book: Book, page: Page, character: BookCharacter): string {
+export function pageCheckPrompt(book: Book, page: Page, character: BookCharacter, alsoChanged: BookCharacter[] = []): string {
   const cast = castOn(page, character.id);
   const clothing = clothingOn(character, page);
   const pose = cast.pose.trim();
+  const others = alsoChanged.map((c) => castOn(page, c.id).hint.trim() || c.label);
   return [
     `Image 1 is part of an original page from the picture book "${book.title}". Image 2 is the same part after one character (${cast.hint.trim() || character.description.trim() || character.label}) was redrawn as a different person, whose head is shown in image 3.`,
     'The redraw should change ONLY that character\'s face, hair (colour, length and style), skin tone, facial hair and glasses, to match image 3.',
+    others.length
+      ? `Also redrawn on purpose in the same image, as other people: ${others.join('; ')}. Ignore every change to them; judge only the character above, and leave them out of restUnchanged.`
+      : '',
     'Compare image 2 with image 1 and answer in JSON:',
     `- samePose: same pose and direction as in image 1${pose ? ` (${pose})` : ''}? Which way they face (face, back, profile), where they look, body position, gestures and expression must match. Small drawing differences are fine.`,
     `- sameClothing: same garments and colours as in image 1${clothing ? ` (${clothing})` : ''}?`,
@@ -122,7 +165,9 @@ export function pageCheckPrompt(book: Book, page: Page, character: BookCharacter
     '- looksLikePerson: do their face, hair and skin tone match image 3, rather than the original character?',
     '- restUnchanged: are the other characters, objects and background the same as in image 1?',
     '- correction: if anything above is false, ONE short instruction (under 100 characters) for the illustrator to fix it, naming what to match, e.g. "back to the viewer, like the original" or "softer watercolour shading like the rest of the page". Say "the original", never "image 1/2/3". Empty if everything is true.',
-  ].join('\n');
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 // ---- "Prepare with AI" (cheap text model) -------------------------------------------

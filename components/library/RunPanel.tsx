@@ -28,6 +28,7 @@ export function RunPanel({ books, selected, onSelect, initialPeople, price }: Pr
   const [cast, setCast] = useState<Record<string, Record<string, string>>>({});
   const [mode, setMode] = useState<'test' | 'all'>('test');
   const [reuse, setReuse] = useState(true);
+  const [together, setTogether] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,8 +44,12 @@ export function RunPanel({ books, selected, onSelect, initialPeople, price }: Pr
   const pageIndexes = book ? testPages(book, mode === 'all' ? 'all' : 3, assignments.map((a) => a.characterId)) : [];
   const saved = (a: { characterId: string; personId: string }) => !!people.find((p) => p.id === a.personId)?.drawings[drawingKey(book!.id, a.characterId)];
   const drawings = assignments.filter((a) => !(reuse && saved(a))).length;
+  // One image per assigned character on each page, or one per page when drawn all at once.
   const pageImages = book
-    ? pageIndexes.reduce((n, i) => n + assignments.filter((a) => book.pages.find((p) => p.index === i)?.cast[a.characterId]?.present).length, 0)
+    ? pageIndexes.reduce((n, i) => {
+        const onPage = assignments.filter((a) => book.pages.find((p) => p.index === i)?.cast[a.characterId]?.present).length;
+        return n + (together ? Math.min(onPage, 1) : onPage);
+      }, 0)
     : 0;
   const images = drawings + pageImages;
 
@@ -53,7 +58,7 @@ export function RunPanel({ books, selected, onSelect, initialPeople, price }: Pr
     setBusy(true);
     setError(null);
     try {
-      const run = await api<Run>('/api/runs', { method: 'POST', json: { bookId: book.id, assignments, pages: mode, reuseDrawings: reuse } });
+      const run = await api<Run>('/api/runs', { method: 'POST', json: { bookId: book.id, assignments, pages: mode, reuseDrawings: reuse, together } });
       router.push(`/runs/${run.id}`);
     } catch (err) {
       setError((err as Error).message);
@@ -131,6 +136,24 @@ export function RunPanel({ books, selected, onSelect, initialPeople, price }: Pr
                 All pages
               </button>
             </div>
+            {assignments.length > 1 && (
+              <div className={ui.field}>
+                <span className={ui.label}>Characters on a page</span>
+                <div className={ui.segmented} role="group" aria-label="How characters on a page are drawn">
+                  <button className={ui.segment} aria-pressed={!together} onClick={() => setTogether(false)}>
+                    One by one
+                  </button>
+                  <button className={ui.segment} aria-pressed={together} onClick={() => setTogether(true)}>
+                    All at once
+                  </button>
+                </div>
+                <span className={ui.help}>
+                  {together
+                    ? 'One image per page for everyone: cheaper and faster, but each face is smaller in the AI’s view and faces can get mixed up.'
+                    : 'One image per character: each face gets its own close-up. Best detail, costs more.'}
+                </span>
+              </div>
+            )}
             {assignments.some(saved) && (
               <label className={ui.switchRow}>
                 <span className={styles.switchText}>
@@ -147,7 +170,7 @@ export function RunPanel({ books, selected, onSelect, initialPeople, price }: Pr
               </li>
               <li>
                 <span>
-                  {pageIndexes.length} {pageIndexes.length === 1 ? 'page' : 'pages'}, one image per character on each
+                  {pageIndexes.length} {pageIndexes.length === 1 ? 'page' : 'pages'}, {together ? 'one image each' : 'one image per character on each'}
                 </span>
                 <span className={ui.muted}>{pageImages}</span>
               </li>
@@ -155,7 +178,7 @@ export function RunPanel({ books, selected, onSelect, initialPeople, price }: Pr
                 <span>
                   {images} images · about {money(images * price)}
                 </span>
-                <span className={ui.muted}>+ redraws the check asks for</span>
+                <span className={ui.muted}>+ any Regenerate you ask for</span>
               </li>
             </ul>
           </div>

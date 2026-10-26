@@ -126,8 +126,10 @@ export interface Attempt {
   ms: number;
   /** The short correction this version was made with, if any. */
   fix?: string;
-  /** True when `fix` came from the automatic check rather than from a person. */
+  /** True when `fix` came from the automatic check rather than from a person (older runs). */
   auto?: boolean;
+  /** Made with every character in one image call. */
+  together?: boolean;
   /** What the automatic check said about this version. */
   check?: { ok: boolean; note: string };
 }
@@ -164,6 +166,8 @@ export interface Run {
   createdAt: string;
   status: RunStatus;
   pageIndexes: number[];
+  /** Every character on a page in one image call instead of one call each. */
+  together?: boolean;
   cast: CastStep[];
   pages: Record<string, RunStep>;
   /** Images generated in this run, for the cost counter. */
