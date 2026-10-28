@@ -53,7 +53,7 @@ export function Flipbook({ book, run, names, watermark, onClose }: { book: Book;
           <button className={cx(ui.iconBtn, styles.turn)} onClick={() => go(-1)} disabled={at === 0} aria-label="Previous page">
             <BackIcon />
           </button>
-          <BookPage key={current.page.index} book={book} page={current.page} art={current.file} names={names} className={cx(styles.page, wide ? styles.wide : styles.tall, watermark && ui.watermark)} />
+          <BookPage key={current.page.index} book={book} page={current.page} art={current.file} names={names} texts={run.text?.[current.page.index]} className={cx(styles.page, wide ? styles.wide : styles.tall, watermark && ui.watermark)} />
           <button className={cx(ui.iconBtn, styles.turn)} onClick={() => go(1)} disabled={at === pages.length - 1} aria-label="Next page">
             <NextIcon />
           </button>

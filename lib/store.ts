@@ -131,6 +131,7 @@ export async function listRuns(): Promise<RunSummary[]> {
         ordered: !!run.ordered,
         done: steps.filter((s) => s.status === 'done').length,
         total: steps.length,
+        images: run.images,
         cover: (first && chosenFile(first)) ?? (run.cast[0] ? chosenFile(run.cast[0]) : null),
       };
     });

@@ -2,8 +2,9 @@ import 'server-only';
 
 import sharp from 'sharp';
 
-import { generateImage, type InlineImage } from './ai/gemini';
-import { characterPrompt, pagePrompt, type PromptMember } from './ai/prompts';
+import { generateImage, generateJson, type InlineImage } from './ai/gemini';
+import { characterPrompt, pagePrompt, textRewritePrompt, textRewriteSchema, type PromptMember, type TextChange, type TextRewrite } from './ai/prompts';
+import { swapName } from './client';
 import { HttpError } from './http-error';
 import {
   blendInBox,
@@ -36,6 +37,7 @@ import {
   type Person,
   type Run,
   type RunStep,
+  isMale,
   testPages,
 } from './types';
 
@@ -149,7 +151,51 @@ export async function createRun(bookId: string, assignments: Assignment[], pageI
 
   if (run.status === 'pages') void pumpPages(run.id);
   else for (const c of run.cast) if (!c.approved) void drawCharacter(run.id, c.characterId);
+  void rewriteText(run.id);
   return run;
+}
+
+// ---- he/she in the text ------------------------------------------------------------------
+
+/**
+ * When someone plays a character of the other gender (a girl as Ross), the cheap text model
+ * rewrites the book's text once for the run: names swapped, and he/she and the like changed for
+ * that character only. Pages show the names swapped only until it's done, or if it fails.
+ */
+export async function rewriteText(runId: string): Promise<void> {
+  const run = await requireRun(runId);
+  const book = await requireBook(run.bookId);
+  const names: [string, string][] = [];
+  const changes: TextChange[] = [];
+  for (const step of run.cast) {
+    const character = characterOf(book, step.characterId);
+    const person = await requirePerson(step.personId);
+    const shown = character.nameInText.trim() ? person.name : character.label;
+    if (character.nameInText.trim()) names.push([character.nameInText.trim(), person.name]);
+    if (isMale(character.gender) !== isMale(person.gender)) changes.push({ name: shown, from: character.gender, to: person.gender });
+  }
+  if (!changes.length) return;
+
+  const swapped = (text: string) => names.reduce((t, [from, to]) => swapName(t, from, to), text);
+  const pages = book.pages.filter((p) => p.kind !== 'skip' && p.lines.length).map((p) => ({ page: p.index, lines: p.lines.map((l) => swapped(l.text)) }));
+  if (!pages.length) return;
+  await mutate(runId, (r) => void (r.textStatus = 'working'));
+  try {
+    const answer = await generateJson<TextRewrite>([], textRewritePrompt(pages, changes), textRewriteSchema);
+    const text: Record<string, string[]> = {};
+    for (const { page, lines } of pages) {
+      const got = answer.pages.find((p) => p.page === page)?.lines;
+      // A page that came back with a different number of lines keeps the names-only text.
+      if (got?.length === lines.length && got.some((l, i) => l !== lines[i])) text[page] = got;
+    }
+    await mutate(runId, (r) => {
+      r.text = text;
+      r.textStatus = 'done';
+    });
+  } catch (err) {
+    console.error('[run] text', err instanceof Error ? err.message : err);
+    await mutate(runId, (r) => void (r.textStatus = 'error'));
+  }
 }
 
 // ---- step 1: the people, drawn in the book's style ---------------------------------------

@@ -240,3 +240,43 @@ export function bookDraftPrompt(book: Book): string {
     '  - clothing: their usual outfit, garments and colours with any trim or pattern.',
   ].join('\n');
 }
+
+// ---- he/she in the page text ----------------------------------------------------------------
+
+export interface TextChange {
+  /** The person's name, already in the text. */
+  name: string;
+  from: Gender;
+  to: Gender;
+}
+
+export interface TextRewrite {
+  pages: { page: number; lines: string[] }[];
+}
+
+export const textRewriteSchema = {
+  type: 'OBJECT',
+  properties: {
+    pages: {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: { page: { type: 'INTEGER' }, lines: { type: 'ARRAY', items: { type: 'STRING' } } },
+        required: ['page', 'lines'],
+      },
+    },
+  },
+  required: ['pages'],
+};
+
+/** Rewrites the words about characters whose gender changed; everything else stays word for word. */
+export function textRewritePrompt(pages: { page: number; lines: string[] }[], changes: TextChange[]): string {
+  const who = changes.map((c) => `- ${c.name}: was written as a ${c.from}, is now a ${c.to}`).join('\n');
+  return `This is the text of a children's picture book, page by page and line by line. Some characters are now played by someone of the other gender:
+${who}
+
+Change only the words that refer to these characters: pronouns (he/she, him/her, his/her/hers, himself/herself) and gendered nouns (boy/girl, son/daughter, brother/sister, man/woman, daddy/mommy, mister/miss, king/queen and the like). Use context to tell who a pronoun refers to; words about anyone else stay as they are.
+Keep every other word, the punctuation, the capitalisation and the line breaks exactly. Return every page given, with exactly as many lines as it has now, each new line as close to the old one as possible.
+
+${JSON.stringify(pages)}`;
+}

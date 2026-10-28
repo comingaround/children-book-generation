@@ -22,7 +22,7 @@ const busyStep = (s: RunStep) => s.status === 'queued' || s.status === 'working'
 
 const drawingCast = (run: Run) => run.cast.some((c) => !c.approved && busyStep(c));
 
-const active = (run: Run) => drawingCast(run) || Object.values(run.pages).some(busyStep);
+const active = (run: Run) => drawingCast(run) || Object.values(run.pages).some(busyStep) || run.textStatus === 'working';
 
 export function RunView({ initial, book, people, price }: { initial: Run; book: Book; people: Person[]; price: number }) {
   const router = useRouter();
@@ -104,6 +104,9 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
         <Link href={`/preview/${run.id}`} className={cx(ui.btn, ui.ghost)}>
           Customer view
         </Link>
+        <a href={`/api/runs/${run.id}/pdf`} className={cx(ui.btn, ui.ghost)} download>
+          PDF
+        </a>
         <button className={cx(ui.btn, ui.secondary)} onClick={() => setReading(true)} disabled={done === 0}>
           <BookIcon />
           Book view
@@ -117,6 +120,22 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
         <p className={cx(ui.notice, ui.noticeError)}>
           <span className={ui.dot} />
           {error}
+        </p>
+      )}
+
+      {run.textStatus === 'working' && (
+        <p className={cx(ui.notice, ui.noticeInfo)}>
+          <span className={ui.dot} />
+          Rewriting he/she in the text for the new gender…
+        </p>
+      )}
+      {run.textStatus === 'error' && (
+        <p className={cx(ui.notice, ui.noticeError)}>
+          <span className={ui.dot} />
+          The he/she rewrite failed; pages show the names swapped only.
+          <button className={cx(ui.btn, ui.ghost, ui.small)} onClick={() => act(`/api/runs/${run.id}`, { text: true }, 'PATCH')}>
+            Try the text again
+          </button>
         </p>
       )}
 
@@ -252,7 +271,7 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
                   <BeforeAfter
                     label={label}
                     before={<BookPage book={book} page={page} />}
-                    after={<BookPage book={book} page={page} art={file} names={names} />}
+                    after={<BookPage book={book} page={page} art={file} names={names} texts={run.text?.[page.index]} />}
                   />
                 ) : (
                   <div className={styles.pending}>

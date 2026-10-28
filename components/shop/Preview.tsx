@@ -27,7 +27,7 @@ export function Preview({ initial, book, people, price }: { initial: Run; book: 
   const [error, setError] = useState<string | null>(null);
   const [reading, setReading] = useState(false);
   const [deleted, setDeleted] = useState(false);
-  const polling = run.cast.some((c) => !c.approved && busyStep(c)) || Object.values(run.pages).some(busyStep);
+  const polling = run.cast.some((c) => !c.approved && busyStep(c)) || Object.values(run.pages).some(busyStep) || run.textStatus === 'working';
 
   const refresh = useCallback(async () => {
     try {
@@ -199,7 +199,7 @@ export function Preview({ initial, book, people, price }: { initial: Run; book: 
                   <BeforeAfter
                     label={label}
                     before={<BookPage book={book} page={page} />}
-                    after={<BookPage book={book} page={page} art={file} names={names} className={cx(watermark && ui.watermark)} />}
+                    after={<BookPage book={book} page={page} art={file} names={names} texts={run.text?.[page.index]} className={cx(watermark && ui.watermark)} />}
                   />
                 ) : (
                   <div className={run$.pending}>
@@ -231,6 +231,18 @@ export function Preview({ initial, book, people, price }: { initial: Run; book: 
           })}
         </ul>
       </section>
+
+      {run.ordered && done === pages.length && (
+        <section className={cx(ui.panel, styles.order)}>
+          <div className={styles.orderText}>
+            <h2 className={ui.panelTitle}>Your book is ready</h2>
+            <p>Every page is done. Download it as a PDF, made from the original book with {who} in it.</p>
+          </div>
+          <a href={`/api/runs/${run.id}/pdf`} className={cx(ui.btn, ui.primary)} download>
+            Download PDF
+          </a>
+        </section>
+      )}
 
       {!run.ordered && rest.length > 0 && (
         <section className={cx(ui.panel, styles.order)}>

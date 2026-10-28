@@ -172,6 +172,13 @@ export interface Run {
   preview?: boolean;
   /** The customer ordered the full book: every page with their characters was added. */
   ordered?: boolean;
+  /**
+   * Page text rewritten for this run's people (names, and he/she where a person's gender differs
+   * from their character's), by page index: one string per line of `page.lines`. Absent = names only.
+   */
+  text?: Record<string, string[]>;
+  /** The he/she rewrite: being made, or failed (the pages then show the names swapped only). */
+  textStatus?: 'working' | 'done' | 'error';
   cast: CastStep[];
   pages: Record<string, RunStep>;
   /** Images generated in this run, for the cost counter. */
@@ -189,6 +196,8 @@ export interface RunSummary {
   ordered: boolean;
   done: number;
   total: number;
+  /** Images generated, for the owner's cost column. */
+  images: number;
   cover: string | null;
 }
 
@@ -233,6 +242,9 @@ export function pageReadiness(book: Book): { ready: number; total: number } {
   const states = book.pages.map((p) => pageState(book, p)).filter((s) => s === 'ready' || s === 'needsBox');
   return { ready: states.filter((s) => s === 'ready').length, total: states.length };
 }
+
+/** Boy and man are one side, girl and woman the other: a swap across them needs he/she changed. */
+export const isMale = (g: Gender) => g === 'boy' || g === 'man';
 
 /** Customers only see books where every page with a character has every box drawn. */
 export function bookReady(book: Book): boolean {

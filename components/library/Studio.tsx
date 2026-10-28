@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
 
-import { ago, api, cx } from '@/lib/client';
+import { ago, api, cx, money } from '@/lib/client';
 import { fileUrl, type Book, type RunSummary } from '@/lib/types';
 
 import { PlusIcon } from '../icons';
@@ -14,7 +14,7 @@ import { BookCard } from './BookCard';
 import styles from './Library.module.css';
 
 /** Edit books: the owner's side. Import a PDF and prepare its characters, boxes and style. */
-export function Studio({ books, runs }: { books: Book[]; runs: RunSummary[] }) {
+export function Studio({ books, runs, price }: { books: Book[]; runs: RunSummary[]; price: number }) {
   const router = useRouter();
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -82,7 +82,10 @@ export function Studio({ books, runs }: { books: Book[]; runs: RunSummary[] }) {
         )}
 
         <section className={styles.runs}>
-          <h2 className={ui.panelTitle}>Runs</h2>
+          <div className={styles.runsHead}>
+            <h2 className={ui.panelTitle}>Runs</h2>
+            <span className={ui.muted}>{monthCost(runs, price)}</span>
+          </div>
           {runs.length === 0 ? (
             <p className={ui.muted}>Nothing generated yet. Customers start runs under Make a book; here you get the tools for each one: versions, fixes and costs.</p>
           ) : (
@@ -100,6 +103,7 @@ export function Studio({ books, runs }: { books: Book[]; runs: RunSummary[] }) {
                         {run.people} · {run.ordered ? 'ordered' : run.preview ? 'preview' : 'test run'} · {ago(run.createdAt)}
                       </span>
                     </span>
+                    <span className={styles.cost}>{money(run.images * price)}</span>
                     <RunStatusChip status={run.status} done={run.done} total={run.total} />
                   </Link>
                 </li>
@@ -110,4 +114,11 @@ export function Studio({ books, runs }: { books: Book[]; runs: RunSummary[] }) {
       </div>
     </main>
   );
+}
+
+/** "This month: 42 images · $5.63", from the runs started this calendar month. */
+function monthCost(runs: RunSummary[], price: number): string {
+  const month = new Date().toISOString().slice(0, 7);
+  const images = runs.filter((r) => r.createdAt.startsWith(month)).reduce((n, r) => n + r.images, 0);
+  return `This month: ${images} ${images === 1 ? 'image' : 'images'} · ${money(images * price)}`;
 }

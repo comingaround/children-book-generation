@@ -1,7 +1,7 @@
 import Link from 'next/link';
 
 import { cx } from '@/lib/client';
-import { fileUrl, pageReadiness, type Book } from '@/lib/types';
+import { bookReady, fileUrl, pageReadiness, type Book } from '@/lib/types';
 
 import { CheckIcon } from '../icons';
 import ui from '../ui.module.css';
@@ -35,6 +35,7 @@ export function BookCard({ book, selected, onSelect }: { book: Book; selected?: 
           </>
         )}
       </span>
+      {!onSelect && <span className={styles.visibility}>{bookReady(book) ? 'Customers see it' : 'Hidden from customers until every page is ready'}</span>}
     </>
   );
   return (
