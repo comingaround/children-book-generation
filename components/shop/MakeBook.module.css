@@ -161,3 +161,8 @@
     flex-basis: 100%;
   }
 }
+
+/* The one-by-one / all-at-once switch keeps its own width. */
+.mode {
+  align-self: flex-start;
+}

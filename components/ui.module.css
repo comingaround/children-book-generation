@@ -378,24 +378,16 @@
   white-space: nowrap;
 }
 
-/* "Preview" tiled across a generated page until the customer orders (put on a BookPage root).
-   Tiled, not one word, so it shows on whatever part the before/after slider leaves visible. */
-.watermark::after {
-  content: 'Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview Preview';
-  position: absolute;
-  inset: -40%;
-  padding-top: 4cqi;
-  font-family: var(--font-display);
-  font-size: 6cqi;
-  font-weight: 600;
-  line-height: 2.4;
-  letter-spacing: 0.08em;
-  word-spacing: 1.4em;
-  text-align: center;
-  text-transform: uppercase;
-  color: var(--on-ink);
-  opacity: 0.55;
-  text-shadow: 0 0 0.08em rgb(35 37 31 / 0.5);
-  transform: rotate(-24deg);
+/* The customer's pages: no selecting, no long-press menu, no dragging or right-clicking an image
+   to save it (the right-click lands on the page, whose menu the component turns off). A deterrent,
+   not DRM; the files route also refuses to open a preview's images on their own. */
+.protect {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.protect img {
   pointer-events: none;
+  -webkit-user-drag: none;
 }

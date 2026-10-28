@@ -4,12 +4,13 @@ import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 
 import { api, cx, money } from '@/lib/client';
-import { chosenFile, fileUrl, testPages, type Book, type CastStep, type Person, type Run, type RunStep } from '@/lib/types';
+import { canDrawTogether, chosenFile, fileUrl, pageImageCount, testPages, type Book, type CastStep, type Person, type Run, type RunStep } from '@/lib/types';
 
 import { BookFonts, BookPage } from '../BookPage';
 import { BackIcon, BookIcon, CheckIcon, RedoIcon } from '../icons';
 import { BeforeAfter } from '../run/BeforeAfter';
 import { Flipbook } from '../run/Flipbook';
+import { TogetherSwitch } from '../TogetherSwitch';
 import run$ from '../run/RunView.module.css';
 import ui from '../ui.module.css';
 import styles from './Preview.module.css';
@@ -19,7 +20,7 @@ const POLL_MS = 2000;
 const busyStep = (s: RunStep) => s.status === 'queued' || s.status === 'working';
 
 /**
- * The customer's side of a run: check the drawings, see the preview pages (watermarked), order
+ * The customer's side of a run: check the drawings, see the preview pages (protected from saving), order
  * the full book. The owner's tools for the same run (versions, fixes, costs) are on /runs/<id>.
  */
 export function Preview({ initial, book, people, price }: { initial: Run; book: Book; people: Person[]; price: number }) {
@@ -60,15 +61,15 @@ export function Preview({ initial, book, people, price }: { initial: Run; book: 
   const canApprove = !approved && !drawing && run.cast.every((c) => chosenFile(c));
   const pages = run.pageIndexes.map((i) => book.pages.find((p) => p.index === i)).filter((p) => !!p);
   const done = pages.filter((p) => run.pages[p.index]?.status === 'done').length;
-  const watermark = !run.ordered;
   const who = run.cast.map((c) => personOf(c)?.name ?? 'someone').join(' & ');
   const names: [string, string][] = run.cast
     .map((c) => [characterOf(c.characterId)?.nameInText.trim() ?? '', personOf(c)?.name ?? ''] as [string, string])
     .filter(([from, to]) => from && to);
 
-  // What ordering adds: every other page with these characters, one image per character on it.
+  // What ordering adds: every other page with these characters, drawn as the switch says.
   const rest = testPages(book, 'all', castIds).filter((i) => !run.pages[i]);
-  const restImages = rest.reduce((n, i) => n + castIds.filter((id) => book.pages.find((p) => p.index === i)?.cast[id]?.present).length, 0);
+  const restImages = pageImageCount(book, rest, castIds, !!run.together);
+  const shared = rest.some((i) => canDrawTogether(book, book.pages.find((p) => p.index === i)!, castIds));
 
   async function order() {
     const note = `Local demo, no payment. This draws the other ${rest.length} pages: about ${restImages} images, ${money(restImages * price)} of AI.`;
@@ -88,7 +89,7 @@ export function Preview({ initial, book, people, price }: { initial: Run; book: 
   }
 
   return (
-    <main className={styles.layout}>
+    <main className={cx(styles.layout, ui.protect)} onContextMenu={(e) => e.preventDefault()}>
       <BookFonts book={book} />
 
       <header className={styles.head}>
@@ -199,7 +200,7 @@ export function Preview({ initial, book, people, price }: { initial: Run; book: 
                   <BeforeAfter
                     label={label}
                     before={<BookPage book={book} page={page} />}
-                    after={<BookPage book={book} page={page} art={file} names={names} texts={run.text?.[page.index]} className={cx(watermark && ui.watermark)} />}
+                    after={<BookPage book={book} page={page} art={file} names={names} texts={run.text?.[page.index]} />}
                   />
                 ) : (
                   <div className={run$.pending}>
@@ -250,8 +251,14 @@ export function Preview({ initial, book, people, price }: { initial: Run; book: 
             <h2 className={ui.panelTitle}>Like it? Order the whole book</h2>
             {/* On a pastel wash, text stays ink (style guide §1.5). */}
             <p>
-              All {rest.length + pages.length} pages with {who}, without the watermark. You see every page before it is printed.
+              All {rest.length + pages.length} pages with {who} as a PDF to keep. You see every page before it is printed.
             </p>
+            {shared && (
+              <div className={ui.field}>
+                <span className={ui.label}>Pages with more than one of them</span>
+                <TogetherSwitch className={styles.mode} together={!!run.together} onChange={(together) => act(`/api/runs/${run.id}`, { together }, 'PATCH')} />
+              </div>
+            )}
           </div>
           <button className={cx(ui.btn, ui.primary)} onClick={order} disabled={!approved}>
             Order the full book
@@ -270,7 +277,7 @@ export function Preview({ initial, book, people, price }: { initial: Run; book: 
         )}
       </p>
 
-      {reading && <Flipbook book={book} run={run} names={names} watermark={watermark} onClose={() => setReading(false)} />}
+      {reading && <Flipbook book={book} run={run} names={names} onClose={() => setReading(false)} />}
     </main>
   );
 }

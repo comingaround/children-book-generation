@@ -5,13 +5,14 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 import { ago, api, cx } from '@/lib/client';
-import { fileUrl, genderLabel, PREVIEW_PAGES, testPages, type Book, type BookCharacter, type Gender, type Person, type Run, type RunSummary } from '@/lib/types';
+import { canDrawTogether, fileUrl, genderLabel, PREVIEW_PAGES, testPages, type Book, type BookCharacter, type Gender, type Person, type Run, type RunSummary } from '@/lib/types';
 
 import { CheckIcon, PlusIcon } from '../icons';
 import { BookCard } from '../library/BookCard';
 import lib from '../library/Library.module.css';
 import { People } from '../library/People';
 import { RunStatusChip } from '../RunStatusChip';
+import { TogetherSwitch } from '../TogetherSwitch';
 import ui from '../ui.module.css';
 import styles from './MakeBook.module.css';
 
@@ -32,6 +33,8 @@ export function MakeBook({ books, initialPeople, runs }: Props) {
   /** The character waiting for the person being added in the People card. */
   const [adding, setAdding] = useState<string | null>(null);
   const [request, setRequest] = useState<{ n: number; gender: Gender } | null>(null);
+  /** Pages with several people: one image for everyone, or one per character. */
+  const [together, setTogether] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,6 +50,9 @@ export function MakeBook({ books, initialPeople, runs }: Props) {
       )
     : [];
   const names = assignments.map((a) => withPhoto(a.personId)!.name);
+  // The switch only matters if some page of the book has two of them on it.
+  const ids = assignments.map((a) => a.characterId);
+  const shared = !!book && book.pages.some((p) => canDrawTogether(book, p, ids));
 
   const assign = (characterId: string, personId: string) => book && setCast((all) => ({ ...all, [book.id]: { ...all[book.id], [characterId]: personId } }));
 
@@ -61,7 +67,7 @@ export function MakeBook({ books, initialPeople, runs }: Props) {
     setBusy(true);
     setError(null);
     try {
-      const run = await api<Run>('/api/runs', { method: 'POST', json: { bookId: book.id, assignments, pages: 'preview', reuseDrawings: true } });
+      const run = await api<Run>('/api/runs', { method: 'POST', json: { bookId: book.id, assignments, pages: 'preview', reuseDrawings: true, together: shared && together } });
       router.push(`/preview/${run.id}`);
     } catch (err) {
       setError((err as Error).message);
@@ -157,6 +163,17 @@ export function MakeBook({ books, initialPeople, runs }: Props) {
               We draw {names.join(' and ')} in the book&apos;s style, then the cover{previewPages.length > 2 ? ` and ${previewPages.length - 1} pages` : ' and one page'}. It takes
               about two minutes. You check them before ordering the whole book.
             </p>
+            {shared && (
+              <div className={ui.field}>
+                <span className={ui.label}>Pages with more than one of them</span>
+                <TogetherSwitch className={styles.mode} together={together} onChange={setTogether} />
+                <span className={ui.help}>
+                  {together
+                    ? 'One image per page for everyone: cheaper and faster, but each face is smaller in the AI’s view and faces can get mixed up.'
+                    : 'One image per character: each face gets its own close-up. Best detail, costs more.'}
+                </span>
+              </div>
+            )}
             {error && (
               <p className={cx(ui.notice, ui.noticeError)}>
                 <span className={ui.dot} />

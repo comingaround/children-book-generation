@@ -112,7 +112,7 @@ export interface Assignment {
 
 /**
  * `together`: every character on a page in one image call instead of one call each.
- * `preview`: a customer's free preview, shown watermarked until they order the full book.
+ * `preview`: a customer's free preview, protected from saving until they order the full book.
  */
 export async function createRun(bookId: string, assignments: Assignment[], pageIndexes: number[], reuseDrawings: boolean, together = false, preview = false): Promise<Run> {
   const book = await requireBook(bookId);
@@ -232,6 +232,7 @@ async function drawCharacter(runId: string, characterId: string): Promise<void> 
     await mutate(runId, (r) => {
       const step = castStep(r, characterId);
       r.images++;
+      r.drawings = (r.drawings ?? 0) + 1;
       step.status = 'done';
       step.message = null;
       step.attempts.push({ file, at: new Date().toISOString(), ms: Date.now() - started });

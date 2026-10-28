@@ -22,6 +22,19 @@ const busyStep = (s: RunStep) => s.status === 'queued' || s.status === 'working'
 
 const drawingCast = (run: Run) => run.cast.some((c) => !c.approved && busyStep(c));
 
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/** What the paid images went on: "2 drawings · 8 page images", plus drawings reused for free. */
+function imageBreakdown(run: Run): string {
+  const reused = run.cast.filter((c) => c.attempts.some((a) => a.file.endsWith('-saved.png'))).length;
+  const parts =
+    run.drawings === undefined
+      ? [`${plural(run.images, 'image')} generated`]
+      : [plural(run.drawings, 'drawing'), plural(run.images - run.drawings, 'page image')];
+  if (reused) parts.push(`${reused} saved ${reused === 1 ? 'drawing' : 'drawings'} reused free`);
+  return parts.join(' · ');
+}
+
 const active = (run: Run) => drawingCast(run) || Object.values(run.pages).some(busyStep) || run.textStatus === 'working';
 
 export function RunView({ initial, book, people, price }: { initial: Run; book: Book; people: Person[]; price: number }) {
@@ -97,7 +110,7 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
             {book.title} <span className={styles.with}>with</span> {who}
           </h1>
           <span className={ui.muted}>
-            {run.images} {run.images === 1 ? 'image' : 'images'} generated · {money(run.images * price)}
+            {imageBreakdown(run)} · {money(run.images * price)}
           </span>
         </div>
         <RunStatusChip status={run.status} done={done} total={pages.length} />
@@ -106,6 +119,9 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
         </Link>
         <a href={`/api/runs/${run.id}/pdf`} className={cx(ui.btn, ui.ghost)} download>
           PDF
+        </a>
+        <a href={`/api/runs/${run.id}/pdf?print=1`} className={cx(ui.btn, ui.ghost)} download title="300 dpi art and 3 mm bleed, for a printer">
+          Print PDF
         </a>
         <button className={cx(ui.btn, ui.secondary)} onClick={() => setReading(true)} disabled={done === 0}>
           <BookIcon />

@@ -168,7 +168,7 @@ export interface Run {
   pageIndexes: number[];
   /** Every character on a page in one image call instead of one call each. */
   together?: boolean;
-  /** Started as a customer's free preview (cover + 1 page), shown watermarked until ordered. */
+  /** Started as a customer's free preview (cover + 1 page), protected from saving until ordered. */
   preview?: boolean;
   /** The customer ordered the full book: every page with their characters was added. */
   ordered?: boolean;
@@ -183,6 +183,8 @@ export interface Run {
   pages: Record<string, RunStep>;
   /** Images generated in this run, for the cost counter. */
   images: number;
+  /** How many of them were character drawings (the rest are page images). Missing on older runs. */
+  drawings?: number;
 }
 
 export interface RunSummary {
@@ -225,6 +227,15 @@ export const chosenFile = (step: { attempts: { file: string }[]; selected: numbe
 export function canDrawTogether(book: Book, page: Page, characterIds: string[]): boolean {
   const here = characterIds.filter((id) => page.cast[id]?.present);
   return here.length > 1 && book.settings.closeUp !== false && here.every((id) => page.cast[id].box);
+}
+
+/** Page images these pages cost: one per character on each, or one per page drawn all at once. */
+export function pageImageCount(book: Book, indexes: number[], characterIds: string[], together: boolean): number {
+  return indexes.reduce((n, i) => {
+    const page = book.pages.find((p) => p.index === i);
+    if (!page) return n;
+    return n + (together && canDrawTogether(book, page, characterIds) ? 1 : characterIds.filter((id) => page.cast[id]?.present).length);
+  }, 0);
 }
 
 export type PageState = 'skip' | 'noCast' | 'ready' | 'needsBox';

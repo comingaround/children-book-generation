@@ -7,13 +7,17 @@ Reads a JSON spec on stdin:
       "out": ".../data/runs/<run>/book.pdf",
       "keep": [1, 3, 4, ...],               # PDF page numbers, in order (skipped pages left out)
       "art": {"3": ".../page-3.png", ...},  # new illustration per page
-      "lines": {"3": [{"text": "...", "newText": "...", "align": "left"}]}
+      "lines": {"3": [{"text": "...", "newText": "...", "align": "left"}]},
+      "bleed": 8.5                          # points of bleed per side, 0 for none
     }
 
 Each page's illustration (its largest image, as in import_pdf.py) is replaced with the new one,
 so the text, fonts and layout of the original stay as they are. Only the lines whose text
 changed (names, he/she) are rewritten: removed and set again in the same font, size and colour,
 shrunk if the new text is wider than the old line.
+
+With bleed, each page is placed on a larger sheet (trim box = the original page) and a thin
+strip along each edge is stretched outwards over the bleed, so the page runs on past the cut.
 
     python -I scripts/export_pdf.py < spec.json
 """
@@ -138,6 +142,40 @@ def rewrite_lines(doc, page, changes: list) -> None:
             x += font.text_length(part, fontsize=size)
 
 
+# The bleed, and the page's outer EDGE points (inside any printer's safe margin, so nothing is
+# lost), are filled from a strip just inside that: hairlines some books have at the edge go away.
+EDGE = 3
+STRIP = 1
+
+
+def with_bleed(doc, bleed: float):
+    """A new document: each page centred on a sheet `bleed` larger per side, its edges extended."""
+    out = pymupdf.open()
+    for page in doc:
+        w, h = page.rect.width, page.rect.height
+        sheet = out.new_page(width=w + 2 * bleed, height=h + 2 * bleed)
+        W, H = sheet.rect.width, sheet.rect.height
+        trim = pymupdf.Rect(bleed, bleed, bleed + w, bleed + h)
+        sheet.show_pdf_page(trim, doc, page.number)
+        e, a, b = bleed + EDGE, EDGE, EDGE + STRIP
+        # (target on the sheet, source strip on the page): four sides, then four corners on top.
+        bands = [
+            ((0, e, e, H - e), (a, a, b, h - a)),
+            ((W - e, e, W, H - e), (w - b, a, w - a, h - a)),
+            ((e, 0, W - e, e), (a, a, w - a, b)),
+            ((e, H - e, W - e, H), (a, h - b, w - a, h - a)),
+            ((0, 0, e, e), (a, a, b, b)),
+            ((W - e, 0, W, e), (w - b, a, w - a, b)),
+            ((0, H - e, e, H), (a, h - b, b, h - a)),
+            ((W - e, H - e, W, H), (w - b, h - b, w - a, h - a)),
+        ]
+        for target, clip in bands:
+            sheet.show_pdf_page(pymupdf.Rect(target), doc, page.number, clip=pymupdf.Rect(clip), keep_proportion=False)
+        sheet.set_bleedbox(sheet.rect)
+        sheet.set_trimbox(trim)
+    return out
+
+
 def main() -> None:
     # Bytes, not text: on Windows stdin would be decoded as cp1252 and curly quotes would not match.
     spec = json.loads(sys.stdin.buffer.read().decode("utf-8"))
@@ -151,6 +189,8 @@ def main() -> None:
         if changes:
             rewrite_lines(doc, page, changes)
     doc.select([n - 1 for n in spec["keep"]])
+    if spec.get("bleed"):
+        doc = with_bleed(doc, spec["bleed"])
     doc.save(spec["out"], garbage=3, deflate=True)
     print(spec["out"])
 
