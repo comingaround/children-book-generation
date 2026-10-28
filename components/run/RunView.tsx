@@ -90,7 +90,7 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
       <header className={styles.head}>
         <Link href="/" className={cx(ui.btn, ui.ghost, ui.small)}>
           <BackIcon />
-          Library
+          Make a book
         </Link>
         <div className={styles.titles}>
           <h1 className={styles.title}>

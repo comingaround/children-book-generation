@@ -93,7 +93,7 @@ export function RunPanel({ books, selected, onSelect, initialPeople, price }: Pr
             {book.characters.length === 0 ? (
               <p className={cx(ui.notice, ui.noticeInfo)}>
                 <span className={ui.dot} />
-                This book has no characters yet. Open it and press Prepare all pages with AI.
+                This book is not prepared yet. The owner prepares it under Edit books.
               </p>
             ) : (
               <ul className={styles.castList}>

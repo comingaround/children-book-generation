@@ -248,9 +248,9 @@ export function BookEditor({ initial }: { initial: Book }) {
       <BookFonts book={book} />
 
       <header className={styles.head}>
-        <Link href="/" className={cx(ui.btn, ui.ghost, ui.small)}>
+        <Link href="/studio" className={cx(ui.btn, ui.ghost, ui.small)}>
           <BackIcon />
-          Library
+          Books
         </Link>
         <input className={styles.title} value={book.title} onChange={(e) => change((b) => ({ ...b, title: e.target.value }))} aria-label="Book title" />
         <span className={cx(ui.chip, readiness.total && readiness.ready === readiness.total ? ui.sage : ui.peach)}>
