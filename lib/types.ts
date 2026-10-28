@@ -32,6 +32,8 @@ export interface TextLine {
   font: string | null;
   color: string;
   align: Align;
+  /** The line as printed in the PDF, when the import cleaned it (markup removed, a fragment joined). */
+  source?: string;
 }
 
 export interface BookFont {
@@ -82,6 +84,8 @@ export interface Page {
   cast: Record<string, PageCast>;
   scenePrompt: string;
   lines: TextLine[];
+  /** PDF lines left out of the story (ads, markup); the PDF export removes them. */
+  removed?: string[];
 }
 
 export interface BookSettings {

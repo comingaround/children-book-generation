@@ -23,8 +23,8 @@ async function forPrint(run: Run, book: Book, [x0, , x1]: number[], file: string
 
 /**
  * The run as a PDF, made from the book's original PDF by scripts/export_pdf.py: the new art in
- * place of each illustration, the lines whose text changed (names, he/she) rewritten, skipped
- * pages left out.
+ * place of each illustration, the lines whose text changed (names, he/she, cleaned at import)
+ * rewritten, ads and markup the import left out removed, skipped pages left out.
  * Pages not (yet) made keep the book's own art.
  *
  * `print`: for a printer. The new art is resampled to 300 dpi at its printed size (sharper
@@ -46,8 +46,9 @@ export async function exportPdf(run: Run, book: Book, print = false): Promise<Bu
     const file = step && chosenFile(step);
     if (file) art[page.index] = dataPath(print ? await forPrint(run, book, page.imageRect, file) : file);
     const changed = page.lines
-      .map((l, i) => ({ text: l.text, newText: run.text?.[page.index]?.[i] ?? names.reduce((t, [from, to]) => swapName(t, from, to), l.text), align: l.align }))
-      .filter((l) => l.newText !== l.text);
+      .map((l, i) => ({ text: l.source ?? l.text, newText: run.text?.[page.index]?.[i] ?? names.reduce((t, [from, to]) => swapName(t, from, to), l.text), align: l.align }))
+      .filter((l) => l.newText !== l.text)
+      .concat((page.removed ?? []).map((text) => ({ text, newText: '', align: 'left' as const })));
     if (changed.length) lines[page.index] = changed;
   }
 

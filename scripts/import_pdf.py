@@ -7,6 +7,7 @@ illustration underneath and the hero's name swapped in the text.
 
     python -I scripts/import_pdf.py <file.pdf> [--id some-id]
     python -I scripts/import_pdf.py --samples     # every PDF in baby-books-to-gen/
+    python -I scripts/import_pdf.py --retext <id>  # extract an imported book's text again, keeping the rest
 
 Prints the new book id on the last line. Needs PyMuPDF (`pip install pymupdf`).
 """
@@ -28,6 +29,8 @@ SAMPLES = ROOT / "baby-books-to-gen"
 THUMB_MAX = 420
 # Publisher promos and ads that are not part of the story.
 AD_LINE = re.compile(r"advertisement|published by|www\.|\.com\b", re.I)
+# Credits stay, even with a web address in them.
+CREDIT = re.compile(r"illustrat|written by|^by\b", re.I)
 SKIP_PAGE = re.compile(r"dear supporter|discover more|your story book|personalised children", re.I)
 
 
@@ -126,18 +129,53 @@ def paragraphs(lines: list) -> list:
     return groups
 
 
-def text_lines(page, fonts: list) -> list:
+# A word or two left on a line once markup is gone joins the next line ("…16 px;">My" + "favorite…").
+FRAGMENT_WORDS = 2
+
+
+def strip_markup(lines: list, removed: list) -> list:
+    """Removes HTML some books have printed as text (`<span style=…>`), even across lines.
+    A line that changes keeps the PDF's text in "source"; one left empty goes to `removed`."""
+    out, in_tag, carry = [], False, ""
+    for line in lines:
+        kept_chars = []
+        for ch in line["text"]:
+            if ch == "<":
+                in_tag = True
+            elif ch == ">" and in_tag:
+                in_tag = False
+            elif not in_tag:
+                kept_chars.append(ch)
+        changed = len(kept_chars) < len(line["text"])
+        text = " ".join("".join(kept_chars).split()) if changed else line["text"]
+        if carry:
+            text, carry, changed = f"{carry} {text}".strip(), "", True
+        if changed and text and len(text.split()) <= FRAGMENT_WORDS and line is not lines[-1]:
+            carry, text = text, ""
+        if not text:
+            removed.append(line["text"])
+            continue
+        out.append({**line, "text": text, **({"source": line["text"]} if changed else {})})
+    return out
+
+
+def text_lines(page, fonts: list) -> tuple:
+    """The page's story lines, and the PDF text of lines left out (ads, markup) for the export to remove."""
     w, h = page.rect.width, page.rect.height
-    kept = []
+    kept, removed = [], []
     for block in page.get_text("dict")["blocks"]:
         if block["type"] != 0:
             continue
         for line in block["lines"]:
             spans = [s for s in line["spans"] if s["text"].strip()]
             text = "".join(s["text"] for s in line["spans"]).strip()
-            if not spans or not text or AD_LINE.search(text):
+            if not spans or not text:
+                continue
+            if AD_LINE.search(text) and not CREDIT.search(text):
+                removed.append(text)
                 continue
             kept.append({**line, "first": spans[0], "text": text})
+    kept = strip_markup(kept, removed)
 
     out = []
     for group in paragraphs(kept):
@@ -156,8 +194,9 @@ def text_lines(page, fonts: list) -> list:
                 "font": font["family"] if font else None,
                 "color": hex_color(span["color"]),
                 "align": align,
+                **({"source": line["source"]} if "source" in line else {}),
             })
-    return out
+    return out, removed
 
 
 def save_art(doc, page, index: int, out: Path) -> dict:
@@ -217,7 +256,7 @@ def import_pdf(pdf: Path, book_id: str | None = None) -> str:
     first_texts = []
     pages = []
     for i, page in enumerate(doc, start=1):
-        lines = text_lines(page, fonts)
+        lines, removed = text_lines(page, fonts)
         # Ad lines are already dropped, so a story page with an ad footer isn't skipped.
         joined = " ".join(l["text"] for l in lines)
         full_text = joined
@@ -240,6 +279,7 @@ def import_pdf(pdf: Path, book_id: str | None = None) -> str:
             "cast": {},
             "scenePrompt": "",
             "lines": lines,
+            **({"removed": removed} if removed else {}),
         })
 
     first = doc[0].rect
@@ -263,13 +303,33 @@ def import_pdf(pdf: Path, book_id: str | None = None) -> str:
     return book_id
 
 
+def retext(book_id: str) -> str:
+    """Extracts an imported book's text again (after an import fix), keeping boxes and settings.
+    Fonts are taken as saved; only lines and removed change."""
+    out = BOOKS / book_id
+    book = json.loads((out / "book.json").read_text(encoding="utf-8"))
+    doc = pymupdf.open(out / book["source"])
+    for page in book["pages"]:
+        lines, removed = text_lines(doc[page["index"] - 1], book["fonts"])
+        page["lines"] = lines
+        page.pop("removed", None)
+        if removed:
+            page["removed"] = removed
+    (out / "book.json").write_text(json.dumps(book, indent=2, ensure_ascii=False), encoding="utf-8")
+    return book_id
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("pdf", nargs="?")
     parser.add_argument("--id")
     parser.add_argument("--samples", action="store_true")
+    parser.add_argument("--retext")
     args = parser.parse_args()
 
+    if args.retext:
+        print(retext(args.retext))
+        return
     if args.samples:
         for pdf in sorted(SAMPLES.glob("*.pdf")):
             print(import_pdf(pdf))

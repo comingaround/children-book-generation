@@ -55,15 +55,23 @@ def replace_art(page, png: str) -> None:
 FALLBACKS = {
     "comic": ["C:/Windows/Fonts/comic.ttf", "/usr/share/fonts/truetype/comic-neue/ComicNeue-Regular.ttf"],
     "serif": ["C:/Windows/Fonts/georgia.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf"],
+    # Noto Sans, Open Sans and kin: open, rounded shapes that Arial doesn't match.
+    "humanist": ["C:/Windows/Fonts/segoeui.ttf", "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"],
     "sans": ["C:/Windows/Fonts/arial.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"],
 }
-BOLD = {"comic.ttf": "comicbd.ttf", "georgia.ttf": "georgiab.ttf", "arial.ttf": "arialbd.ttf"}
+BOLD = {"comic.ttf": "comicbd.ttf", "georgia.ttf": "georgiab.ttf", "arial.ttf": "arialbd.ttf", "segoeui.ttf": "segoeuib.ttf", "NotoSans-Regular.ttf": "NotoSans-Bold.ttf"}
+HUMANIST = ("noto", "opensans", "open sans", "droid", "segoe")
 
 
 def fallback_font(span_font: str, bold: bool):
     """A full Unicode TTF in the font's style, as (fontname, Font, buffer)."""
     name = span_font.lower()
-    style = "comic" if "comic" in name else "serif" if any(k in name for k in ("times", "garamond", "georgia", "serif", "book", "century")) else "sans"
+    if "comic" in name:
+        style = "comic"
+    elif any(k in name for k in ("times", "garamond", "georgia", "serif", "book", "century")):
+        style = "serif"
+    else:
+        style = "humanist" if any(k in name for k in HUMANIST) else "sans"
     for path in FALLBACKS[style]:
         if bold and path.rsplit("/", 1)[-1] in BOLD:
             path = path.rsplit("/", 1)[0] + "/" + BOLD[path.rsplit("/", 1)[-1]]

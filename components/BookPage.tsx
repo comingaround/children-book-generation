@@ -72,7 +72,8 @@ export function BookPage({ book, page, art, names = [], texts, showText = true, 
         const cs = getComputedStyle(span);
         const px = (line.size / 100) * pageWidth;
         ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${px}px ${cs.fontFamily}`;
-        const measured = ctx.measureText(line.text).width;
+        // The PDF's own text fills line.w, so measure that, not a cleaned version of it.
+        const measured = ctx.measureText(line.source ?? line.text).width;
         const target = (line.w / 100) * pageWidth;
         if (measured > 0) span.style.setProperty('--fit', String(Math.min(Math.max(target / measured, 0.6), 1.4)));
       });
