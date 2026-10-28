@@ -15,6 +15,7 @@
   min-width: 0;
 }
 
+
 .side {
   position: sticky;
   top: calc(var(--bar-height) + var(--space-6));

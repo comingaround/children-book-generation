@@ -127,6 +127,8 @@ export async function listRuns(): Promise<RunSummary[]> {
         people: run.cast.map((c) => people.get(c.personId)?.name ?? 'Deleted person').join(', '),
         createdAt: run.createdAt,
         status: run.status,
+        preview: !!run.preview,
+        ordered: !!run.ordered,
         done: steps.filter((s) => s.status === 'done').length,
         total: steps.length,
         cover: (first && chosenFile(first)) ?? (run.cast[0] ? chosenFile(run.cast[0]) : null),

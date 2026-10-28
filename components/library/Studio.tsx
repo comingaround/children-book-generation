@@ -1,18 +1,20 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
 
-import { api, cx } from '@/lib/client';
-import type { Book } from '@/lib/types';
+import { ago, api, cx } from '@/lib/client';
+import { fileUrl, type Book, type RunSummary } from '@/lib/types';
 
 import { PlusIcon } from '../icons';
+import { RunStatusChip } from '../RunStatusChip';
 import ui from '../ui.module.css';
 import { BookCard } from './BookCard';
 import styles from './Library.module.css';
 
 /** Edit books: the owner's side. Import a PDF and prepare its characters, boxes and style. */
-export function Studio({ books }: { books: Book[] }) {
+export function Studio({ books, runs }: { books: Book[]; runs: RunSummary[] }) {
   const router = useRouter();
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,7 +41,7 @@ export function Studio({ books }: { books: Book[] }) {
           <div>
             <h1 className={styles.title}>Edit books</h1>
             <p className={ui.muted}>
-              For the shop owner: import a book once and prepare who is where. Customers only see the finished books under Make a book.
+              For the shop owner: import a book once and prepare who is where. Customers see a book under Make a book once every page is ready.
             </p>
           </div>
           <input
@@ -78,6 +80,33 @@ export function Studio({ books }: { books: Book[] }) {
             ))}
           </ul>
         )}
+
+        <section className={styles.runs}>
+          <h2 className={ui.panelTitle}>Runs</h2>
+          {runs.length === 0 ? (
+            <p className={ui.muted}>Nothing generated yet. Customers start runs under Make a book; here you get the tools for each one: versions, fixes and costs.</p>
+          ) : (
+            <ul className={styles.runList}>
+              {runs.slice(0, 20).map((run) => (
+                <li key={run.id}>
+                  <Link href={`/runs/${run.id}`} className={styles.runRow}>
+                    <span className={styles.runThumb}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      {run.cover && <img src={fileUrl(run.cover)} alt="" />}
+                    </span>
+                    <span className={styles.runText}>
+                      <strong>{run.bookTitle}</strong>
+                      <span className={ui.muted} suppressHydrationWarning>
+                        {run.people} · {run.ordered ? 'ordered' : run.preview ? 'preview' : 'test run'} · {ago(run.createdAt)}
+                      </span>
+                    </span>
+                    <RunStatusChip status={run.status} done={run.done} total={run.total} />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       </div>
     </main>
   );

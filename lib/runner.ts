@@ -36,6 +36,7 @@ import {
   type Person,
   type Run,
   type RunStep,
+  testPages,
 } from './types';
 
 /**
@@ -107,8 +108,11 @@ export interface Assignment {
   personId: string;
 }
 
-/** `together`: every character on a page in one image call instead of one call each. */
-export async function createRun(bookId: string, assignments: Assignment[], pageIndexes: number[], reuseDrawings: boolean, together = false): Promise<Run> {
+/**
+ * `together`: every character on a page in one image call instead of one call each.
+ * `preview`: a customer's free preview, shown watermarked until they order the full book.
+ */
+export async function createRun(bookId: string, assignments: Assignment[], pageIndexes: number[], reuseDrawings: boolean, together = false, preview = false): Promise<Run> {
   const book = await requireBook(bookId);
   if (!assignments.length) throw new HttpError(400, 'Choose a person for at least one character');
   if (!pageIndexes.length) throw new HttpError(400, 'None of these characters are on any page yet');
@@ -125,6 +129,7 @@ export async function createRun(bookId: string, assignments: Assignment[], pageI
     status: 'character',
     pageIndexes,
     together,
+    preview,
     cast: [],
     pages: Object.fromEntries(pageIndexes.map((i) => [String(i), emptyStep('waiting')])),
     images: 0,
@@ -402,6 +407,22 @@ export async function regeneratePage(runId: string, index: number, fix?: string,
     r.status = 'pages';
   });
   void pumpPages(runId);
+  return run;
+}
+
+/** The customer orders the full book: every other page with their characters joins the run. */
+export async function orderFullBook(runId: string): Promise<Run> {
+  const book = await requireBook((await requireRun(runId)).bookId);
+  const run = await mutate(runId, (r) => {
+    if (r.ordered) throw new HttpError(409, 'Already ordered');
+    const all = testPages(book, 'all', r.cast.map((c) => c.characterId));
+    const approved = r.cast.every((c) => c.approved);
+    for (const i of all) if (!r.pages[i]) r.pages[i] = emptyStep(approved ? 'queued' : 'waiting');
+    r.pageIndexes = all.filter((i) => r.pages[i]);
+    r.ordered = true;
+    if (approved) r.status = 'pages';
+  });
+  if (run.status === 'pages') void pumpPages(runId);
   return run;
 }
 

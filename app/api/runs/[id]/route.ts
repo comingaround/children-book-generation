@@ -1,5 +1,5 @@
 import { HttpError, respond } from '@/lib/http-error';
-import { resumeIfIdle, setTogether } from '@/lib/runner';
+import { orderFullBook, resumeIfIdle, setTogether } from '@/lib/runner';
 import { deleteRun, requireRun } from '@/lib/store';
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -10,12 +10,17 @@ export async function GET(_req: Request, { params }: Ctx) {
   );
 }
 
-/** `{ together }`: how pages made from now on draw their characters (one call each, or all at once). */
+/**
+ * `{ together }`: how pages made from now on draw their characters (one call each, or all at once).
+ * `{ order: true }`: the customer orders the full book after the preview.
+ */
 export async function PATCH(req: Request, { params }: Ctx) {
   return respond('run:update', { status: 500, message: 'Could not save' }, async () => {
-    const { together } = (await req.json()) as { together?: boolean };
+    const { together, order } = (await req.json()) as { together?: boolean; order?: boolean };
+    const id = (await params).id;
+    if (order === true) return Response.json(await orderFullBook(id));
     if (typeof together !== 'boolean') throw new HttpError(400, 'Nothing to change');
-    return Response.json(await setTogether((await params).id, together));
+    return Response.json(await setTogether(id, together));
   });
 }
 

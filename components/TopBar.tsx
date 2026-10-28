@@ -15,12 +15,14 @@ const tabs = [
 
 export function TopBar() {
   const path = usePathname();
-  const owner = path.startsWith('/studio') || path.startsWith('/books');
+  const owner = ['/studio', '/books', '/runs'].some((p) => path.startsWith(p));
   return (
     <header className={styles.bar}>
       <Link href="/" className={styles.brand}>
         <span className={styles.mark} aria-hidden="true" />
-        Baby Book <em>Preview</em>
+        <span className={styles.brandText}>
+          Baby Book <em>Preview</em>
+        </span>
       </Link>
       <nav className={styles.tabs}>
         {tabs.map((t) => {

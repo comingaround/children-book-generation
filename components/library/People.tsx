@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 
 import { api, cx } from '@/lib/client';
 import { fileUrl, genderLabel, GENDERS, type Gender, type Person } from '@/lib/types';
@@ -16,14 +16,25 @@ interface Draft {
   notes: string;
   photo: File | null;
   preview: string | null;
+  consent: boolean;
 }
 
-const blankDraft: Draft = { name: '', gender: 'boy', age: '', notes: '', photo: null, preview: null };
+const blankDraft: Draft = { name: '', gender: 'boy', age: '', notes: '', photo: null, preview: null, consent: false };
 
-const draftOf = (p: Person): Draft => ({ name: p.name, gender: p.gender, age: p.age?.toString() ?? '', notes: p.notes, photo: null, preview: null });
+const draftOf = (p: Person): Draft => ({ name: p.name, gender: p.gender, age: p.age?.toString() ?? '', notes: p.notes, photo: null, preview: null, consent: true });
+
+interface Props {
+  people: Person[];
+  setPeople: Dispatch<SetStateAction<Person[]>>;
+  /** Opens the new-person form with this gender (from "Add a photo" under Who is who); `n` changes per request. */
+  request?: { n: number; gender: Gender } | null;
+  /** A new person was saved. */
+  onAdded?: (person: Person) => void;
+}
 
 /** Everyone who can be put into a book: children, parents, friends. Each needs a photo. */
-export function People({ people, setPeople }: { people: Person[]; setPeople: Dispatch<SetStateAction<Person[]>> }) {
+export function People({ people, setPeople, request, onAdded }: Props) {
+  const panel = useRef<HTMLDivElement>(null);
   const [openId, setOpenId] = useState<string>(people[0]?.id ?? 'new');
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Draft>(blankDraft);
@@ -41,6 +52,21 @@ export function People({ people, setPeople }: { people: Person[]; setPeople: Dis
     setDraft(blankDraft);
   }
 
+  // A new request opens the form right away (state adjusted while rendering); the effect only scrolls.
+  const [seen, setSeen] = useState(request);
+  if (request !== seen) {
+    setSeen(request);
+    if (request) {
+      setOpenId('new');
+      setEditing(false);
+      setError(null);
+      setDraft({ ...blankDraft, gender: request.gender });
+    }
+  }
+  useEffect(() => {
+    if (request) panel.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [request]);
+
   function choosePhoto(file: File | undefined) {
     if (!file) return;
     if (draft.preview) URL.revokeObjectURL(draft.preview);
@@ -57,8 +83,10 @@ export function People({ people, setPeople }: { people: Person[]; setPeople: Dis
       form.set('age', draft.age);
       form.set('notes', draft.notes);
       if (draft.photo) form.set('photo', draft.photo);
+      if (draft.consent) form.set('consent', 'yes');
       const saved = await api<Person>(editing && person ? `/api/people/${person.id}` : '/api/people', { method: editing ? 'PATCH' : 'POST', body: form });
       setPeople((list) => [saved, ...list.filter((p) => p.id !== saved.id)]);
+      if (!editing) onAdded?.(saved);
       open(saved.id);
     } catch (err) {
       setError((err as Error).message);
@@ -92,7 +120,7 @@ export function People({ people, setPeople }: { people: Person[]; setPeople: Dis
   }
 
   return (
-    <div className={ui.panel}>
+    <div className={ui.panel} ref={panel}>
       <div className={ui.section}>
         <h2 className={ui.panelTitle}>People</h2>
         <div className={styles.people}>
@@ -158,6 +186,12 @@ export function People({ people, setPeople }: { people: Person[]; setPeople: Dis
               <span className={ui.label}>Notes</span>
               <input className={ui.input} value={draft.notes} onChange={(e) => set({ notes: e.target.value })} placeholder="e.g. wears round glasses, curly hair, beard" />
             </label>
+            {!editing && (
+              <label className={styles.consent}>
+                <input type="checkbox" checked={draft.consent} onChange={(e) => set({ consent: e.target.checked })} />
+                <span>I am this person or their parent or guardian, and I agree that the photo is used to make this book. It is deleted when I ask.</span>
+              </label>
+            )}
             {error && (
               <p className={cx(ui.notice, ui.noticeError)}>
                 <span className={ui.dot} />
@@ -165,7 +199,7 @@ export function People({ people, setPeople }: { people: Person[]; setPeople: Dis
               </p>
             )}
             <div className={ui.row}>
-              <button className={cx(ui.btn, ui.secondary)} onClick={save} disabled={busy === 'save' || !draft.name.trim() || (!editing && !draft.photo)}>
+              <button className={cx(ui.btn, ui.secondary)} onClick={save} disabled={busy === 'save' || !draft.name.trim() || (!editing && (!draft.photo || !draft.consent))}>
                 {busy === 'save' && <span className={ui.spinner} />}
                 {editing ? 'Save changes' : 'Save person'}
               </button>

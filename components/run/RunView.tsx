@@ -66,7 +66,7 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
   async function remove() {
     if (!window.confirm('Delete this run and its generated images?')) return;
     await api(`/api/runs/${run.id}`, { method: 'DELETE' });
-    router.push('/');
+    router.push('/studio');
   }
 
   const personOf = (step: CastStep) => people.find((p) => p.id === step.personId) ?? null;
@@ -88,9 +88,9 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
       <BookFonts book={book} />
 
       <header className={styles.head}>
-        <Link href="/" className={cx(ui.btn, ui.ghost, ui.small)}>
+        <Link href="/studio" className={cx(ui.btn, ui.ghost, ui.small)}>
           <BackIcon />
-          Make a book
+          Books
         </Link>
         <div className={styles.titles}>
           <h1 className={styles.title}>
@@ -101,6 +101,9 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
           </span>
         </div>
         <RunStatusChip status={run.status} done={done} total={pages.length} />
+        <Link href={`/preview/${run.id}`} className={cx(ui.btn, ui.ghost)}>
+          Customer view
+        </Link>
         <button className={cx(ui.btn, ui.secondary)} onClick={() => setReading(true)} disabled={done === 0}>
           <BookIcon />
           Book view

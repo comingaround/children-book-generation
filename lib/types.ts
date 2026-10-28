@@ -116,6 +116,8 @@ export interface Person {
   notes: string;
   photo: string | null;
   createdAt: string;
+  /** When whoever uploaded the photo confirmed they may use it (customer flow). */
+  consentAt?: string;
   /** Approved drawings, by `${bookId}/${characterId}`. */
   drawings: Record<string, string>;
 }
@@ -166,6 +168,10 @@ export interface Run {
   pageIndexes: number[];
   /** Every character on a page in one image call instead of one call each. */
   together?: boolean;
+  /** Started as a customer's free preview (cover + 1 page), shown watermarked until ordered. */
+  preview?: boolean;
+  /** The customer ordered the full book: every page with their characters was added. */
+  ordered?: boolean;
   cast: CastStep[];
   pages: Record<string, RunStep>;
   /** Images generated in this run, for the cost counter. */
@@ -179,6 +185,8 @@ export interface RunSummary {
   people: string;
   createdAt: string;
   status: RunStatus;
+  preview: boolean;
+  ordered: boolean;
   done: number;
   total: number;
   cover: string | null;
@@ -225,6 +233,15 @@ export function pageReadiness(book: Book): { ready: number; total: number } {
   const states = book.pages.map((p) => pageState(book, p)).filter((s) => s === 'ready' || s === 'needsBox');
   return { ready: states.filter((s) => s === 'ready').length, total: states.length };
 }
+
+/** Customers only see books where every page with a character has every box drawn. */
+export function bookReady(book: Book): boolean {
+  const { ready, total } = pageReadiness(book);
+  return book.characters.length > 0 && total > 0 && ready === total;
+}
+
+/** Story pages in a free preview, after the cover. */
+export const PREVIEW_PAGES = 1;
 
 /** Which pages a run makes: the cover plus the first `count` story pages with any of `characterIds`. */
 export function testPages(book: Book, count: number | 'all', characterIds: string[]): number[] {

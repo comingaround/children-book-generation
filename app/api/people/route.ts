@@ -10,7 +10,9 @@ export async function GET() {
 export async function POST(req: Request) {
   return respond('people:create', { status: 500, message: 'Could not save the person' }, async () => {
     const blank: Person = { id: newId('person'), name: '', gender: 'boy', age: null, notes: '', photo: null, createdAt: new Date().toISOString(), drawings: {} };
-    const person = await readPersonForm(await req.formData(), blank);
+    const form = await req.formData();
+    if (form.get('consent') !== 'yes') throw new HttpError(400, 'Confirm that you may use this photo');
+    const person = await readPersonForm(form, { ...blank, consentAt: blank.createdAt });
     if (!person.photo) throw new HttpError(400, 'Add a photo');
     await savePerson(person);
     return Response.json(person);

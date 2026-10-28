@@ -1,10 +1,10 @@
-import { Library } from '@/components/library/Library';
+import { MakeBook } from '@/components/shop/MakeBook';
 import { listBooks, listPeople, listRuns } from '@/lib/store';
+import { bookReady } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
 export default async function Home() {
   const [books, people, runs] = await Promise.all([listBooks(), listPeople(), listRuns()]);
-  const price = Number(process.env.IMAGE_PRICE_USD) || 0.134;
-  return <Library books={books} initialPeople={people} runs={runs} price={price} />;
+  return <MakeBook books={books.filter(bookReady)} initialPeople={people} runs={runs} />;
 }
