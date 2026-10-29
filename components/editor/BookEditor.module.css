@@ -20,6 +20,8 @@
   flex: 1 1 260px;
   min-width: 0;
   height: 44px;
+  /* The text lines up with the page edge; the padding only shows while editing. */
+  margin-left: calc(-1 * var(--space-3) - 1px);
   padding: 0 var(--space-3);
   border: 1px solid transparent;
   border-radius: var(--r-md);
@@ -220,6 +222,7 @@
 
 .pair {
   display: flex;
+  align-items: flex-end;
   gap: var(--space-3);
 }
 

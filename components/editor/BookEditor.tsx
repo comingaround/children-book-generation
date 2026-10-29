@@ -248,7 +248,7 @@ export function BookEditor({ initial }: { initial: Book }) {
       <BookFonts book={book} />
 
       <header className={styles.head}>
-        <Link href="/studio" className={cx(ui.btn, ui.ghost, ui.small)}>
+        <Link href="/studio" className={cx(ui.btn, ui.ghost, ui.small, ui.back)}>
           <BackIcon />
           Books
         </Link>

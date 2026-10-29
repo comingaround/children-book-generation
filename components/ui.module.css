@@ -68,6 +68,11 @@
   font-size: var(--text-sm);
 }
 
+/* A back link: its text lines up with the page edge, not its padding. */
+.back {
+  margin-left: -14px;
+}
+
 .wide {
   width: 100%;
 }

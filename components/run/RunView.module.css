@@ -16,15 +16,21 @@
 
 .titles {
   display: flex;
-  flex: 1 1 260px;
+  flex: 1 1 360px;
   flex-direction: column;
   min-width: 0;
-  padding-left: var(--space-2);
   font-size: var(--text-sm);
 }
 
 .title {
   font-size: var(--text-lg);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
 }
 
 .with {
@@ -70,7 +76,7 @@
 .charImages {
   display: flex;
   flex: 0 0 auto;
-  align-items: center;
+  align-items: flex-end;
   gap: var(--space-4);
 }
 
@@ -130,6 +136,7 @@
 }
 
 .arrow {
+  align-self: center;
   font-size: var(--text-lg);
   color: var(--ink-faint);
 }

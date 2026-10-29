@@ -101,7 +101,7 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
       <BookFonts book={book} />
 
       <header className={styles.head}>
-        <Link href="/studio" className={cx(ui.btn, ui.ghost, ui.small)}>
+        <Link href="/studio" className={cx(ui.btn, ui.ghost, ui.small, ui.back)}>
           <BackIcon />
           Books
         </Link>
@@ -113,23 +113,25 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
             {imageBreakdown(run)} · {money(run.images * price)}
           </span>
         </div>
-        <RunStatusChip status={run.status} done={done} total={pages.length} />
-        <Link href={`/preview/${run.id}`} className={cx(ui.btn, ui.ghost)}>
-          Customer view
-        </Link>
-        <a href={`/api/runs/${run.id}/pdf`} className={cx(ui.btn, ui.ghost)} download>
-          PDF
-        </a>
-        <a href={`/api/runs/${run.id}/pdf?print=1`} className={cx(ui.btn, ui.ghost)} download title="300 dpi art and 3 mm bleed, for a printer">
-          Print PDF
-        </a>
-        <button className={cx(ui.btn, ui.secondary)} onClick={() => setReading(true)} disabled={done === 0}>
-          <BookIcon />
-          Book view
-        </button>
-        <button className={ui.iconBtn} onClick={remove} aria-label="Delete run" title="Delete run">
-          <TrashIcon />
-        </button>
+        <div className={styles.actions}>
+          <RunStatusChip status={run.status} done={done} total={pages.length} />
+          <Link href={`/preview/${run.id}`} className={cx(ui.btn, ui.ghost, ui.small)}>
+            Customer view
+          </Link>
+          <a href={`/api/runs/${run.id}/pdf`} className={cx(ui.btn, ui.ghost, ui.small)} download>
+            PDF
+          </a>
+          <a href={`/api/runs/${run.id}/pdf?print=1`} className={cx(ui.btn, ui.ghost, ui.small)} download title="300 dpi art and 3 mm bleed, for a printer">
+            Print PDF
+          </a>
+          <button className={cx(ui.btn, ui.secondary)} onClick={() => setReading(true)} disabled={done === 0}>
+            <BookIcon />
+            Book view
+          </button>
+          <button className={ui.iconBtn} onClick={remove} aria-label="Delete run" title="Delete run">
+            <TrashIcon />
+          </button>
+        </div>
       </header>
 
       {error && (
@@ -340,7 +342,7 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && approved && !busy) void regenerate(page.index);
                       }}
-                      placeholder="Optional fix, e.g. facing away from us, like the original"
+                      placeholder="Optional fix, e.g. facing away from us"
                       disabled={busy}
                     />
                     {(fixes[page.index]?.length ?? 0) > 0 && (

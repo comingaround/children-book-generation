@@ -93,7 +93,7 @@ export function Preview({ initial, book, people, price }: { initial: Run; book: 
       <BookFonts book={book} />
 
       <header className={styles.head}>
-        <Link href="/" className={cx(ui.btn, ui.ghost, ui.small)}>
+        <Link href="/" className={cx(ui.btn, ui.ghost, ui.small, ui.back)}>
           <BackIcon />
           All books
         </Link>

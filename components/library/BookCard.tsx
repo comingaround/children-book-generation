@@ -39,7 +39,7 @@ export function BookCard({ book, selected, onSelect }: { book: Book; selected?: 
     </>
   );
   return (
-    <li className={cx(styles.card, book.pageWidth > book.pageHeight && styles.cardWide, selected && styles.cardSelected)}>
+    <li className={cx(styles.card, selected && styles.cardSelected)}>
       {onSelect ? (
         <button type="button" className={styles.cardLink} onClick={onSelect} aria-pressed={!!selected}>
           {body}
