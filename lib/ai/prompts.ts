@@ -1,8 +1,8 @@
-import { castOn, type Book, type BookCharacter, type Box, type Gender, type Page, type Person } from '../types';
+import { castOn, type Book, type BookCharacter, type Box, type Gender, type Page, type PersonFacts } from '../types';
 
-const who = (person: Person) => `${person.name}, a ${person.age ? `${person.age}-year-old ` : ''}${person.gender}`;
+const who = (person: PersonFacts) => `${person.name}, a ${person.age ? `${person.age}-year-old ` : ''}${person.gender}`;
 
-const notes = (person: Person) => (person.notes.trim() ? ` Notes about them: ${person.notes.trim()}.` : '');
+const notes = (person: PersonFacts) => (person.notes.trim() ? ` Notes about them: ${person.notes.trim()}.` : '');
 
 /** The box in words the model can follow; it reads the image, not our coordinates. */
 function where(box: Box): string {
@@ -25,7 +25,7 @@ const styleLine = (book: Book) =>
  * drawing (face, hair, skin), which keeps them the same on every page.
  * Images: 1 = photo, 2 = style page, 3 (optional) = crop of the original character.
  */
-export function characterPrompt(book: Book, character: BookCharacter, person: Person, withCrop: boolean): string {
+export function characterPrompt(book: Book, character: BookCharacter, person: PersonFacts, withCrop: boolean): string {
   const s = book.settings;
   const clothing = character.clothing.trim();
   return [
@@ -45,7 +45,7 @@ export function characterPrompt(book: Book, character: BookCharacter, person: Pe
 /** One character being replaced on a page; `box` is their place in image 1. */
 export interface PromptMember {
   character: BookCharacter;
-  person: Person;
+  person: PersonFacts;
   box: Box | null;
   /** A correction meant only for this character. */
   fix: string | null;

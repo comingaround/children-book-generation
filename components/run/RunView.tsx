@@ -2,9 +2,12 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 
-import { api, cx, money, seconds } from '@/lib/client';
+import { cx, money, seconds } from '@/lib/client';
+import { downloadPdf } from '@/lib/local/pdf';
+import { approveCast, regenerateCharacter, regeneratePage, retryText, selectCharacter, selectPageAttempt, setTogether } from '@/lib/local/runner';
+import { deleteRun } from '@/lib/local/store';
 import { canDrawTogether, chosenFile, chosenIndex, FIX_MAX, fileUrl, presentOn, type Book, type CastStep, type Person, type Run, type RunStep } from '@/lib/types';
 
 import { BookFonts, BookPage } from '../BookPage';
@@ -14,9 +17,8 @@ import { TogetherSwitch } from '../TogetherSwitch';
 import ui from '../ui.module.css';
 import { BeforeAfter } from './BeforeAfter';
 import { Flipbook } from './Flipbook';
+import { LocalRun } from './LocalRun';
 import styles from './RunView.module.css';
-
-const POLL_MS = 2000;
 
 const busyStep = (s: RunStep) => s.status === 'queued' || s.status === 'working';
 
@@ -26,7 +28,7 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /** What the paid images went on: "2 drawings · 8 page images", plus drawings reused for free. */
 function imageBreakdown(run: Run): string {
-  const reused = run.cast.filter((c) => c.attempts.some((a) => a.file.endsWith('-saved.png'))).length;
+  const reused = run.cast.filter((c) => c.attempts.some((a) => /-saved\.\w+$/.test(a.file))).length;
   const parts =
     run.drawings === undefined
       ? [`${plural(run.images, 'image')} generated`]
@@ -35,51 +37,49 @@ function imageBreakdown(run: Run): string {
   return parts.join(' · ');
 }
 
-const active = (run: Run) => drawingCast(run) || Object.values(run.pages).some(busyStep) || run.textStatus === 'working';
+export function RunView({ id, price }: { id: string; price: number }) {
+  return (
+    <LocalRun id={id} back="/studio">
+      {(loaded) => <RunBody {...loaded} price={price} />}
+    </LocalRun>
+  );
+}
 
-export function RunView({ initial, book, people, price }: { initial: Run; book: Book; people: Person[]; price: number }) {
+function RunBody({ run, book, people, price }: { run: Run; book: Book; people: Person[]; price: number }) {
   const router = useRouter();
-  const [run, setRun] = useState(initial);
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState<'pdf' | 'print' | null>(null);
   const [reading, setReading] = useState(false);
   /** Correction typed under each page, by page index; sent with its next Regenerate. */
   const [fixes, setFixes] = useState<Record<number, string>>({});
   /** Which character a page's correction is for ('' = everyone on the page). */
   const [fixFor, setFixFor] = useState<Record<number, string>>({});
-  const polling = active(run);
 
-  const refresh = useCallback(async () => {
-    try {
-      setRun(await api<Run>(`/api/runs/${run.id}`));
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  }, [run.id]);
-
-  useEffect(() => {
-    if (!polling) return;
-    const timer = setInterval(refresh, POLL_MS);
-    return () => clearInterval(timer);
-  }, [polling, refresh]);
-
-  async function act(url: string, body: object, method = 'POST') {
+  /** A change to the run; the page updates from storage once it is saved. */
+  async function act(change: () => Promise<unknown>) {
     setError(null);
     try {
-      setRun(await api<Run>(url, { method, json: body }));
+      await change();
     } catch (err) {
       setError((err as Error).message);
     }
   }
 
   async function regenerate(index: number) {
-    await act(`/api/runs/${run.id}/pages/${index}`, { action: 'regenerate', fix: fixes[index] ?? '', fixFor: fixFor[index] || null });
+    await act(() => regeneratePage(run.id, index, fixes[index] ?? '', fixFor[index] || null));
     setFixes((f) => ({ ...f, [index]: '' }));
   }
 
   async function remove() {
     if (!window.confirm('Delete this run and its generated images?')) return;
-    await api(`/api/runs/${run.id}`, { method: 'DELETE' });
+    await act(() => deleteRun(run.id));
     router.push('/studio');
+  }
+
+  async function savePdf(print: boolean) {
+    setSaving(print ? 'print' : 'pdf');
+    await act(() => downloadPdf(book, run, names, print));
+    setSaving(null);
   }
 
   const personOf = (step: CastStep) => people.find((p) => p.id === step.personId) ?? null;
@@ -118,12 +118,14 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
           <Link href={`/preview/${run.id}`} className={cx(ui.btn, ui.ghost, ui.small)}>
             Customer view
           </Link>
-          <a href={`/api/runs/${run.id}/pdf`} className={cx(ui.btn, ui.ghost, ui.small)} download>
+          <button className={cx(ui.btn, ui.ghost, ui.small)} onClick={() => savePdf(false)} disabled={!!saving}>
+            {saving === 'pdf' && <span className={ui.spinner} />}
             PDF
-          </a>
-          <a href={`/api/runs/${run.id}/pdf?print=1`} className={cx(ui.btn, ui.ghost, ui.small)} download title="300 dpi art and 3 mm bleed, for a printer">
+          </button>
+          <button className={cx(ui.btn, ui.ghost, ui.small)} onClick={() => savePdf(true)} disabled={!!saving} title="300 dpi art and 3 mm bleed, for a printer">
+            {saving === 'print' && <span className={ui.spinner} />}
             Print PDF
-          </a>
+          </button>
           <button className={cx(ui.btn, ui.secondary)} onClick={() => setReading(true)} disabled={done === 0}>
             <BookIcon />
             Book view
@@ -151,7 +153,7 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
         <p className={cx(ui.notice, ui.noticeError)}>
           <span className={ui.dot} />
           The he/she rewrite failed; pages show the names swapped only.
-          <button className={cx(ui.btn, ui.ghost, ui.small)} onClick={() => act(`/api/runs/${run.id}`, { text: true }, 'PATCH')}>
+          <button className={cx(ui.btn, ui.ghost, ui.small)} onClick={() => act(() => retryText(run.id))}>
             Try the text again
           </button>
         </p>
@@ -172,7 +174,7 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
             </p>
           </div>
           {!approved && (
-            <button className={cx(ui.btn, ui.primary)} onClick={() => act(`/api/runs/${run.id}/character`, { action: 'approve' })} disabled={!canApprove}>
+            <button className={cx(ui.btn, ui.primary)} onClick={() => act(() => approveCast(run.id))} disabled={!canApprove}>
               <CheckIcon />
               Approve and make {pages.length} {pages.length === 1 ? 'page' : 'pages'}
             </button>
@@ -223,7 +225,7 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
                       <button
                         key={a.file}
                         className={cx(styles.attempt, chosenIndex(step) === i && styles.attemptOn)}
-                        onClick={() => act(`/api/runs/${run.id}/character`, { action: 'select', characterId: step.characterId, attempt: i })}
+                        onClick={() => act(() => selectCharacter(run.id, step.characterId, i))}
                         disabled={step.approved}
                         aria-pressed={chosenIndex(step) === i}
                         aria-label={`Attempt ${i + 1}`}
@@ -237,7 +239,7 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
                 {!step.approved && (file || step.status === 'error') && (
                   <button
                     className={cx(ui.btn, ui.secondary, ui.small)}
-                    onClick={() => act(`/api/runs/${run.id}/character`, { action: 'regenerate', characterId: step.characterId })}
+                    onClick={() => act(() => regenerateCharacter(run.id, step.characterId))}
                     disabled={busyStep(step)}
                   >
                     <RedoIcon />
@@ -259,7 +261,7 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
             <TogetherSwitch
               className={styles.modeSwitch}
               together={!!run.together}
-              onChange={(together) => act(`/api/runs/${run.id}`, { together }, 'PATCH')}
+              onChange={(together) => act(() => setTogether(run.id, together))}
             />
           )}
           <span className={ui.muted}>
@@ -360,7 +362,7 @@ export function RunView({ initial, book, people, price }: { initial: Run; book: 
                         <button
                           key={a.file}
                           className={cx(styles.version, chosenIndex(step) === i && styles.versionOn)}
-                          onClick={() => act(`/api/runs/${run.id}/pages/${page.index}`, { action: 'select', attempt: i })}
+                          onClick={() => act(() => selectPageAttempt(run.id, page.index, i))}
                           aria-pressed={chosenIndex(step) === i}
                           title={[`Version ${i + 1}`, a.together && 'all at once', a.fix && `fix${a.fixFor ? ` for ${characterOf(a.fixFor)?.label ?? 'one character'}` : ''}: “${a.fix}”`]
                             .filter(Boolean)

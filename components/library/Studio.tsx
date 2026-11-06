@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
 
 import { ago, api, cx, money } from '@/lib/client';
+import { useRunSummaries } from '@/lib/local/hooks';
 import { fileUrl, type Book, type RunSummary } from '@/lib/types';
 
 import { PlusIcon } from '../icons';
@@ -14,8 +15,9 @@ import { BookCard } from './BookCard';
 import styles from './Library.module.css';
 
 /** Edit books: the owner's side. Import a PDF and prepare its characters, boxes and style. */
-export function Studio({ books, runs, price }: { books: Book[]; runs: RunSummary[]; price: number }) {
+export function Studio({ books, price }: { books: Book[]; price: number }) {
   const router = useRouter();
+  const runs = useRunSummaries(books) ?? [];
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -87,7 +89,7 @@ export function Studio({ books, runs, price }: { books: Book[]; runs: RunSummary
             <span className={ui.muted}>{monthCost(runs, price)}</span>
           </div>
           {runs.length === 0 ? (
-            <p className={ui.muted}>Nothing generated yet. Customers start runs under Make a book; here you get the tools for each one: versions, fixes and costs.</p>
+            <p className={ui.muted}>Nothing generated in this browser yet. Customers start runs under Make a book; here you get the tools for each one: versions, fixes and costs.</p>
           ) : (
             <ul className={styles.runList}>
               {runs.slice(0, 20).map((run) => (

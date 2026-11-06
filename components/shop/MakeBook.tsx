@@ -4,8 +4,10 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-import { ago, api, cx } from '@/lib/client';
-import { canDrawTogether, fileUrl, genderLabel, PREVIEW_PAGES, testPages, type Book, type BookCharacter, type Gender, type Person, type Run, type RunSummary } from '@/lib/types';
+import { ago, cx } from '@/lib/client';
+import { usePeople, useRunSummaries } from '@/lib/local/hooks';
+import { createRun } from '@/lib/local/runner';
+import { canDrawTogether, fileUrl, genderLabel, PREVIEW_PAGES, testPages, type Book, type BookCharacter, type Gender } from '@/lib/types';
 
 import { CheckIcon, PlusIcon } from '../icons';
 import { BookCard } from '../library/BookCard';
@@ -16,18 +18,15 @@ import { TogetherSwitch } from '../TogetherSwitch';
 import ui from '../ui.module.css';
 import styles from './MakeBook.module.css';
 
-interface Props {
-  /** Only books that are fully prepared. */
-  books: Book[];
-  initialPeople: Person[];
-  runs: RunSummary[];
-}
-
-/** What a customer sees: choose a book → a photo for each character → a free preview. */
-export function MakeBook({ books, initialPeople, runs }: Props) {
+/**
+ * What a customer sees: choose a book → a photo for each character → a free preview.
+ * `books`: only those that are fully prepared. People and runs are this browser's own.
+ */
+export function MakeBook({ books }: { books: Book[] }) {
   const router = useRouter();
   const [bookId, setBookId] = useState<string | null>(null);
-  const [people, setPeople] = useState(initialPeople);
+  const people = usePeople();
+  const runs = useRunSummaries(books) ?? [];
   /** Person id by character id, per book, so switching books keeps each book's choices. */
   const [cast, setCast] = useState<Record<string, Record<string, string>>>({});
   /** The character waiting for the person being added in the People card. */
@@ -40,7 +39,7 @@ export function MakeBook({ books, initialPeople, runs }: Props) {
 
   const book = books.find((b) => b.id === bookId) ?? null;
   const chosen = (book && cast[book.id]) || {};
-  const withPhoto = (id: string | undefined) => people.find((p) => p.id === id && p.photo);
+  const withPhoto = (id: string | undefined) => people?.find((p) => p.id === id && p.photo);
   const assignments = book ? book.characters.filter((c) => withPhoto(chosen[c.id])).map((c) => ({ characterId: c.id, personId: chosen[c.id] })) : [];
   const previewPages = book
     ? testPages(
@@ -67,7 +66,7 @@ export function MakeBook({ books, initialPeople, runs }: Props) {
     setBusy(true);
     setError(null);
     try {
-      const run = await api<Run>('/api/runs', { method: 'POST', json: { bookId: book.id, assignments, pages: 'preview', reuseDrawings: true, together: shared && together } });
+      const run = await createRun(book, assignments, previewPages, true, shared && together, true);
       router.push(`/preview/${run.id}`);
     } catch (err) {
       setError((err as Error).message);
@@ -122,7 +121,7 @@ export function MakeBook({ books, initialPeople, runs }: Props) {
                       <button className={cx(styles.choice, !chosen[c.id] && styles.choiceOn)} onClick={() => assign(c.id, '')} aria-pressed={!chosen[c.id]}>
                         As in the book
                       </button>
-                      {people
+                      {(people ?? [])
                         .filter((p) => p.photo && !takenBy.has(p.id))
                         .map((p) => (
                           <button
@@ -218,7 +217,6 @@ export function MakeBook({ books, initialPeople, runs }: Props) {
       <aside className={lib.side}>
         <People
           people={people}
-          setPeople={setPeople}
           request={request}
           onAdded={(person) => {
             if (adding) assign(adding, person.id);

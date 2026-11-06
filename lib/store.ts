@@ -7,9 +7,9 @@ import { dirname, resolve, sep } from 'node:path';
 
 import { HttpError } from './http-error';
 import { migrateBook, migratePerson, migrateRun } from './migrate';
-import { chosenFile, type Book, type Person, type Run, type RunSummary } from './types';
+import type { Book, Person, Run } from './types';
 
-/** Everything the CMS keeps lives in data/: books/, children/ (people), runs/. Plain files, no database. */
+/** Books live in data/books/ (plain files, no database); data/children/ and data/runs/ only hold older saves. */
 export const DATA = resolve(process.cwd(), 'data');
 
 /** Resolves a path inside data/, refusing anything that climbs out of it. */
@@ -18,8 +18,6 @@ export function dataPath(...parts: string[]): string {
   if (full !== DATA && !full.startsWith(DATA + sep)) throw new HttpError(400, 'Bad path');
   return full;
 }
-
-export const newId = (prefix: string) => `${prefix}-${Date.now().toString(36)}${randomBytes(3).toString('hex')}`;
 
 async function readJson<T>(path: string): Promise<T | null> {
   try {
@@ -35,13 +33,6 @@ async function writeJson(path: string, value: unknown): Promise<void> {
   const tmp = `${path}.${randomBytes(3).toString('hex')}.tmp`;
   await writeFile(tmp, JSON.stringify(value, null, 2));
   await rename(tmp, path);
-}
-
-export async function writeFileIn(relative: string, data: Buffer): Promise<string> {
-  const full = dataPath(relative);
-  await mkdir(dirname(full), { recursive: true });
-  await writeFile(full, data);
-  return relative.replaceAll('\\', '/');
 }
 
 export const readDataFile = (relative: string) => readFile(dataPath(relative));
@@ -74,67 +65,16 @@ export async function listBooks(): Promise<Book[]> {
 
 export const deleteBook = (id: string) => rm(dataPath('books', id), { recursive: true, force: true });
 
-// ---- people (stored in data/children/, where the first version kept them) ------------------
-
-export const getPerson = async (id: string) => {
-  const person = await readJson<Person>(dataPath('children', id, 'child.json'));
-  return person && migratePerson(person);
-};
-
-export async function requirePerson(id: string): Promise<Person> {
-  const person = await getPerson(id);
-  if (!person) throw new HttpError(404, 'Person not found');
-  return person;
-}
-
-export const savePerson = (person: Person) => writeJson(dataPath('children', person.id, 'child.json'), person);
+// ---- people and runs on disk ---------------------------------------------------------------
+// People and runs now live in the browser (lib/local/). These read what earlier versions saved
+// in data/children/ and data/runs/, once, for the browser to copy in (app/api/legacy).
 
 export async function listPeople(): Promise<Person[]> {
-  const people = await Promise.all((await listDirs('children')).map(getPerson));
-  return people.filter((p): p is Person => !!p).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const people = await Promise.all((await listDirs('children')).map((id) => readJson<Person>(dataPath('children', id, 'child.json'))));
+  return people.filter((p): p is Person => !!p).map(migratePerson);
 }
 
-export const deletePerson = (id: string) => rm(dataPath('children', id), { recursive: true, force: true });
-
-// ---- runs --------------------------------------------------------------------
-
-export const getRun = async (id: string) => {
-  const run = await readJson<Run>(dataPath('runs', id, 'run.json'));
-  return run && migrateRun(run);
-};
-
-export async function requireRun(id: string): Promise<Run> {
-  const run = await getRun(id);
-  if (!run) throw new HttpError(404, 'Run not found');
-  return run;
+export async function listRuns(): Promise<Run[]> {
+  const runs = await Promise.all((await listDirs('runs')).map((id) => readJson<Run>(dataPath('runs', id, 'run.json'))));
+  return runs.filter((r): r is Run => !!r).map(migrateRun);
 }
-
-export const saveRun = (run: Run) => writeJson(dataPath('runs', run.id, 'run.json'), run);
-
-export async function listRuns(): Promise<RunSummary[]> {
-  const runs = (await Promise.all((await listDirs('runs')).map(getRun))).filter((r): r is Run => !!r);
-  const books = new Map((await listBooks()).map((b) => [b.id, b]));
-  const people = new Map((await listPeople()).map((p) => [p.id, p]));
-  return runs
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .map((run) => {
-      const steps = Object.values(run.pages);
-      const first = run.pageIndexes.map((i) => run.pages[i]).find((s) => s && chosenFile(s));
-      return {
-        id: run.id,
-        bookId: run.bookId,
-        bookTitle: books.get(run.bookId)?.title ?? run.bookId,
-        people: run.cast.map((c) => people.get(c.personId)?.name ?? 'Deleted person').join(', '),
-        createdAt: run.createdAt,
-        status: run.status,
-        preview: !!run.preview,
-        ordered: !!run.ordered,
-        done: steps.filter((s) => s.status === 'done').length,
-        total: steps.length,
-        images: run.images,
-        cover: (first && chosenFile(first)) ?? (run.cast[0] ? chosenFile(run.cast[0]) : null),
-      };
-    });
-}
-
-export const deleteRun = (id: string) => rm(dataPath('runs', id), { recursive: true, force: true });

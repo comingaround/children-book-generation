@@ -1,21 +1,23 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 
-import { api, cx, money } from '@/lib/client';
+import { cx, money } from '@/lib/client';
+import { downloadPdf } from '@/lib/local/pdf';
+import { approveCast, orderFullBook, regenerateCharacter, regeneratePage, setTogether } from '@/lib/local/runner';
+import { deletePhoto } from '@/lib/local/store';
 import { canDrawTogether, chosenFile, fileUrl, pageImageCount, testPages, type Book, type CastStep, type Person, type Run, type RunStep } from '@/lib/types';
 
 import { BookFonts, BookPage } from '../BookPage';
 import { BackIcon, BookIcon, CheckIcon, RedoIcon } from '../icons';
 import { BeforeAfter } from '../run/BeforeAfter';
 import { Flipbook } from '../run/Flipbook';
+import { LocalRun } from '../run/LocalRun';
 import { TogetherSwitch } from '../TogetherSwitch';
 import run$ from '../run/RunView.module.css';
 import ui from '../ui.module.css';
 import styles from './Preview.module.css';
-
-const POLL_MS = 2000;
 
 const busyStep = (s: RunStep) => s.status === 'queued' || s.status === 'working';
 
@@ -23,31 +25,25 @@ const busyStep = (s: RunStep) => s.status === 'queued' || s.status === 'working'
  * The customer's side of a run: check the drawings, see the preview pages (protected from saving), order
  * the full book. The owner's tools for the same run (versions, fixes, costs) are on /runs/<id>.
  */
-export function Preview({ initial, book, people, price }: { initial: Run; book: Book; people: Person[]; price: number }) {
-  const [run, setRun] = useState(initial);
+export function Preview({ id, price }: { id: string; price: number }) {
+  return (
+    <LocalRun id={id} back="/">
+      {(loaded) => <PreviewBody {...loaded} price={price} />}
+    </LocalRun>
+  );
+}
+
+function PreviewBody({ run, book, people, price }: { run: Run; book: Book; people: Person[]; price: number }) {
   const [error, setError] = useState<string | null>(null);
   const [reading, setReading] = useState(false);
   const [deleted, setDeleted] = useState(false);
-  const polling = run.cast.some((c) => !c.approved && busyStep(c)) || Object.values(run.pages).some(busyStep) || run.textStatus === 'working';
+  const [saving, setSaving] = useState(false);
 
-  const refresh = useCallback(async () => {
-    try {
-      setRun(await api<Run>(`/api/runs/${run.id}`));
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  }, [run.id]);
-
-  useEffect(() => {
-    if (!polling) return;
-    const timer = setInterval(refresh, POLL_MS);
-    return () => clearInterval(timer);
-  }, [polling, refresh]);
-
-  async function act(url: string, body: object, method = 'POST') {
+  /** A change to the run; the page updates from storage once it is saved. */
+  async function act(change: () => Promise<unknown>) {
     setError(null);
     try {
-      setRun(await api<Run>(url, { method, json: body }));
+      await change();
     } catch (err) {
       setError((err as Error).message);
     }
@@ -74,18 +70,21 @@ export function Preview({ initial, book, people, price }: { initial: Run; book: 
   async function order() {
     const note = `Local demo, no payment. This draws the other ${rest.length} pages: about ${restImages} images, ${money(restImages * price)} of AI.`;
     if (!window.confirm(note)) return;
-    await act(`/api/runs/${run.id}`, { order: true }, 'PATCH');
+    await act(() => orderFullBook(run.id));
   }
 
   async function deletePhotos() {
     if (!window.confirm(`Delete the photos of ${who} and the drawings made from them? This book stays.`)) return;
-    setError(null);
-    try {
-      await Promise.all(run.cast.map((c) => api(`/api/people/${c.personId}?photo=1`, { method: 'DELETE' })));
+    await act(async () => {
+      await Promise.all(run.cast.map((c) => deletePhoto(c.personId).catch(() => null)));
       setDeleted(true);
-    } catch (err) {
-      setError((err as Error).message);
-    }
+    });
+  }
+
+  async function savePdf() {
+    setSaving(true);
+    await act(() => downloadPdf(book, run, names, false));
+    setSaving(false);
   }
 
   return (
@@ -154,12 +153,7 @@ export function Preview({ initial, book, people, price }: { initial: Run; book: 
                   {(file || step.status === 'error') && (
                     <button
                       className={cx(ui.btn, ui.secondary, ui.small)}
-                      onClick={() =>
-                        act(`/api/runs/${run.id}/character`, {
-                          action: 'regenerate',
-                          characterId: step.characterId,
-                        })
-                      }
+                      onClick={() => act(() => regenerateCharacter(run.id, step.characterId))}
                       disabled={busyStep(step)}
                     >
                       <RedoIcon />
@@ -171,7 +165,7 @@ export function Preview({ initial, book, people, price }: { initial: Run; book: 
             })}
           </ul>
           <div>
-            <button className={cx(ui.btn, ui.primary)} onClick={() => act(`/api/runs/${run.id}/character`, { action: 'approve' })} disabled={!canApprove}>
+            <button className={cx(ui.btn, ui.primary)} onClick={() => act(() => approveCast(run.id))} disabled={!canApprove}>
               <CheckIcon />
               Yes, make my preview
             </button>
@@ -217,11 +211,7 @@ export function Preview({ initial, book, people, price }: { initial: Run; book: 
                 {step.status === 'error' && (
                   <button
                     className={cx(ui.btn, ui.secondary, ui.small)}
-                    onClick={() =>
-                      act(`/api/runs/${run.id}/pages/${page.index}`, {
-                        action: 'regenerate',
-                      })
-                    }
+                    onClick={() => act(() => regeneratePage(run.id, page.index))}
                   >
                     <RedoIcon />
                     Try again
@@ -239,9 +229,10 @@ export function Preview({ initial, book, people, price }: { initial: Run; book: 
             <h2 className={ui.panelTitle}>Your book is ready</h2>
             <p>Every page is done. Download it as a PDF, made from the original book with {who} in it.</p>
           </div>
-          <a href={`/api/runs/${run.id}/pdf`} className={cx(ui.btn, ui.primary)} download>
+          <button className={cx(ui.btn, ui.primary)} onClick={savePdf} disabled={saving}>
+            {saving && <span className={ui.spinner} />}
             Download PDF
-          </a>
+          </button>
         </section>
       )}
 
@@ -256,7 +247,7 @@ export function Preview({ initial, book, people, price }: { initial: Run; book: 
             {shared && (
               <div className={ui.field}>
                 <span className={ui.label}>Pages with more than one of them</span>
-                <TogetherSwitch className={styles.mode} together={!!run.together} onChange={(together) => act(`/api/runs/${run.id}`, { together }, 'PATCH')} />
+                <TogetherSwitch className={styles.mode} together={!!run.together} onChange={(together) => act(() => setTogether(run.id, together))} />
               </div>
             )}
           </div>

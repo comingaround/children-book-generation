@@ -1,8 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
-import { api, cx } from '@/lib/client';
+import { cx } from '@/lib/client';
+import { createPerson, updatePerson } from '@/lib/local/people';
+import { deletePerson, deletePhoto } from '@/lib/local/store';
 import { fileUrl, genderLabel, GENDERS, type Gender, type Person } from '@/lib/types';
 
 import { PlusIcon } from '../icons';
@@ -24,8 +26,8 @@ const blankDraft: Draft = { name: '', gender: 'boy', age: '', notes: '', photo: 
 const draftOf = (p: Person): Draft => ({ name: p.name, gender: p.gender, age: p.age?.toString() ?? '', notes: p.notes, photo: null, preview: null, consent: true });
 
 interface Props {
-  people: Person[];
-  setPeople: Dispatch<SetStateAction<Person[]>>;
+  /** Everyone saved in this browser; undefined while loading. */
+  people: Person[] | undefined;
   /** Opens the new-person form with this gender (from "Add a photo" under Who is who); `n` changes per request. */
   request?: { n: number; gender: Gender } | null;
   /** A new person was saved. */
@@ -33,9 +35,12 @@ interface Props {
 }
 
 /** Everyone who can be put into a book: children, parents, friends. Each needs a photo. */
-export function People({ people, setPeople, request, onAdded }: Props) {
+export function People({ people: loaded, request, onAdded }: Props) {
+  const people = loaded ?? [];
   const panel = useRef<HTMLDivElement>(null);
-  const [openId, setOpenId] = useState<string>(people[0]?.id ?? 'new');
+  // Until the list is loaded, nothing is open; then the newest person (or the form, if none).
+  const [chosen, setOpenId] = useState<string | null>(null);
+  const openId = chosen ?? (loaded ? (people[0]?.id ?? 'new') : null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Draft>(blankDraft);
   const [busy, setBusy] = useState<string | null>(null);
@@ -77,15 +82,8 @@ export function People({ people, setPeople, request, onAdded }: Props) {
     setBusy('save');
     setError(null);
     try {
-      const form = new FormData();
-      form.set('name', draft.name);
-      form.set('gender', draft.gender);
-      form.set('age', draft.age);
-      form.set('notes', draft.notes);
-      if (draft.photo) form.set('photo', draft.photo);
-      if (draft.consent) form.set('consent', 'yes');
-      const saved = await api<Person>(editing && person ? `/api/people/${person.id}` : '/api/people', { method: editing ? 'PATCH' : 'POST', body: form });
-      setPeople((list) => [saved, ...list.filter((p) => p.id !== saved.id)]);
+      const fields = { name: draft.name, gender: draft.gender, age: draft.age, notes: draft.notes };
+      const saved = editing && person ? await updatePerson(person.id, fields, draft.photo) : await createPerson(fields, draft.photo, draft.consent);
       if (!editing) onAdded?.(saved);
       open(saved.id);
     } catch (err) {
@@ -104,13 +102,10 @@ export function People({ people, setPeople, request, onAdded }: Props) {
     setBusy('delete');
     try {
       if (photoOnly) {
-        const updated = await api<Person>(`/api/people/${person.id}?photo=1`, { method: 'DELETE' });
-        setPeople((list) => list.map((p) => (p.id === updated.id ? updated : p)));
+        await deletePhoto(person.id);
       } else {
-        await api(`/api/people/${person.id}`, { method: 'DELETE' });
-        const rest = people.filter((p) => p.id !== person.id);
-        setPeople(rest);
-        open(rest[0]?.id ?? 'new');
+        await deletePerson(person.id);
+        open(people.find((p) => p.id !== person.id)?.id ?? 'new');
       }
     } catch (err) {
       setError((err as Error).message);
@@ -204,7 +199,7 @@ export function People({ people, setPeople, request, onAdded }: Props) {
                 {editing ? 'Save changes' : 'Save person'}
               </button>
               {editing && (
-                <button className={cx(ui.btn, ui.ghost)} onClick={() => open(openId)}>
+                <button className={cx(ui.btn, ui.ghost)} onClick={() => person && open(person.id)}>
                   Cancel
                 </button>
               )}
@@ -249,7 +244,7 @@ export function People({ people, setPeople, request, onAdded }: Props) {
             </div>
           )
         )}
-        <span className={ui.help}>Photos stay in data/ on this computer and are sent to Google only while generating.</span>
+        <span className={ui.help}>Photos stay in this browser and are sent to Google only while generating.</span>
       </div>
     </div>
   );

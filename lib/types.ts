@@ -1,4 +1,9 @@
-/** Shapes of the JSON files under data/. Shared by the server and the browser. */
+/**
+ * Shapes of books (JSON files under data/, on the server) and of people and runs (kept in the
+ * browser, see lib/local/). Shared by the server and the browser.
+ */
+
+import { LOCAL, localUrl } from './local/urls';
 
 export type Gender = 'boy' | 'girl' | 'man' | 'woman';
 export type PageKind = 'cover' | 'page' | 'skip';
@@ -111,7 +116,7 @@ export interface Book {
   pages: Page[];
 }
 
-/** A real person who can be put into a book (stored under data/children/). */
+/** A real person who can be put into a book (kept in the browser; files under data/children/ before). */
 export interface Person {
   id: string;
   name: string;
@@ -122,7 +127,7 @@ export interface Person {
   createdAt: string;
   /** When whoever uploaded the photo confirmed they may use it (customer flow). */
   consentAt?: string;
-  /** Approved drawings, by `${bookId}/${characterId}`. */
+  /** Approved drawings (file keys), by `${bookId}/${characterId}`. */
   drawings: Record<string, string>;
 }
 
@@ -207,8 +212,13 @@ export interface RunSummary {
   cover: string | null;
 }
 
-/** Where a file under data/ is served from. */
-export const fileUrl = (path: string) => `/api/files/${path}`;
+/** What the prompts say about a person; all the AI endpoints get, besides the photo. */
+export type PersonFacts = Pick<Person, 'name' | 'gender' | 'age' | 'notes'>;
+
+export const personFacts = ({ name, gender, age, notes }: Person): PersonFacts => ({ name, gender, age, notes });
+
+/** Where a file is shown from: this browser's storage (people, runs) or data/ on the server (books). */
+export const fileUrl = (path: string) => (path.startsWith(LOCAL) ? localUrl(path) : `/api/files/${path}`);
 
 export const drawingKey = (bookId: string, characterId: string) => `${bookId}/${characterId}`;
 

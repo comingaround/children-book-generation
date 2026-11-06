@@ -24,8 +24,9 @@ Needs Node 20+, Python 3 with PyMuPDF (`pip install pymupdf`) for the PDF import
    - Pages with several people are drawn **one by one** (a call per character, best detail) or **all at once** (one call per page, half the cost); chosen before the preview, changeable before ordering and on the run page.
    - Regenerate takes an optional one-line correction ("back to the viewer, like the original"), for everyone on the page or one character. Every version is kept.
    - Two pages run at a time, with retries when Google is busy.
-5. **View.** The page is rebuilt in the browser: the new illustration, with the original text lines on top in the book's own fonts and each character's name swapped for their person's. When someone's gender differs from their character's, Gemini Flash rewrites he/she and the like in one call per run. Before/after slider per page, a version history per page, and a book view. The customer's preview can't be selected, dragged or right-clicked, and its images won't open on their own until ordered.
-6. **PDF.** `scripts/export_pdf.py` builds the book from its original PDF: the new art in place of each illustration, changed lines re-set in the book's own font, skipped pages left out. **Print PDF** adds 300 dpi art (resampled) and 3 mm bleed.
+   - **The browser runs it.** The loop lives in the page (`lib/local/runner.ts`) and sends one image call at a time to the server, which saves nothing. Close the tab and the run pauses; open it again and it carries on. One tab draws a run, and other open tabs follow along.
+5. **View.** The page is rebuilt in the browser: the new illustration, with the original text lines on top in the book's own fonts and each character's name swapped for their person's. When someone's gender differs from their character's, Gemini Flash rewrites he/she and the like in one call per run. Before/after slider per page, a version history per page, and a book view. The customer's preview can't be selected, dragged or right-clicked.
+6. **PDF.** The browser sends the run's art; `scripts/export_pdf.py` builds the book from its original PDF: the new art in place of each illustration, changed lines re-set in the book's own font, skipped pages left out. **Print PDF** adds 300 dpi art (resampled) and 3 mm bleed.
 
 ## Structure
 
@@ -36,24 +37,26 @@ app/
   studio/page.tsx          Edit books: import, books, runs and costs
   books/[id]/page.tsx      book editor
   runs/[id]/page.tsx       the owner's view of a run: drawings, pages, versions, PDF / Print PDF
-  api/                     books (import, save, draft), people, runs (+ pdf), files
+  api/                     books (import, save, draft), ai (character, page, text: one call each, nothing saved), pdf, files, legacy
 components/                one folder per screen (shop = customer, library/editor/run = owner); ui.module.css holds the shared controls,
                            app/globals.css the design tokens (matte pastels, flat, flexbox only)
 lib/
   ai/gemini.ts             Gemini client (API key or Vertex + local gcloud login), retries
   ai/prompts.ts            character, page and "Draft with AI" prompts
-  runner.ts                the run state machine: character → approval → pages
+  local/                   the browser side: IndexedDB storage (people, runs, images), the run loop
+                           (runner.ts: character → approval → pages), hooks, PDF download, the one-time copy of older saves
+  draw.ts                  the server side of one image call: close-up, prompt, blend back
   images.ts                sharp: model inputs, aspect padding, box blend
-  store.ts                 JSON files under data/
+  store.ts                 books as JSON files under data/ (plus reading older saves)
   types.ts                 the data shapes, shared with the browser
   pdf.ts                   PDF export spec → scripts/export_pdf.py
   migrate.ts               reads files from the single-hero version into the current shapes
 scripts/import_pdf.py      PDF → data/books/<id>/ (--retext <id> re-extracts a book's text)
 scripts/export_pdf.py      run → PDF from the book's source PDF
-data/                      books/, children/ (people), runs/ (gitignored)
+data/                      books/ (gitignored); children/ and runs/ only hold saves from before runs moved to the browser
 ```
 
-`data/` holds everything: imported books, child photos and generated images. It's plain files, so a book or run can be inspected or deleted by hand.
+**Where things are kept.** Books are plain files in `data/books/` on the server, so a book can be inspected or deleted by hand. People, their photos and every run (drawings, pages, versions) are kept in the browser that made them (IndexedDB), never on the server. Another browser doesn't see them, and clearing the site's data removes them. The first time a browser opens the app, it copies in the people and runs that older versions saved in `data/`.
 
 ## Not built yet
 

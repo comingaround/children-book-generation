@@ -1,16 +1,33 @@
 /** Browser helpers. */
 
-/** fetch + JSON; a non-2xx answer throws with the server's `{ error }` message. */
-export async function api<T>(url: string, init?: RequestInit & { json?: unknown }): Promise<T> {
+/** A failed request: the server's `{ error }` message and the HTTP status (503 = the AI is busy). */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message);
+  }
+}
+
+async function send(url: string, init?: RequestInit & { json?: unknown }): Promise<Response> {
   const { json, ...rest } = init ?? {};
   const res = await fetch(url, {
     ...rest,
     ...(json !== undefined ? { body: JSON.stringify(json), headers: { 'content-type': 'application/json', ...rest.headers } } : {}),
   });
-  const body = (await res.json().catch(() => ({}))) as T & { error?: string };
-  if (!res.ok) throw new Error(body.error ?? `Request failed (${res.status})`);
-  return body;
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new ApiError(body.error ?? `Request failed (${res.status})`, res.status);
+  }
+  return res;
 }
+
+/** fetch + JSON; a non-2xx answer throws an ApiError with the server's message. */
+export const api = async <T>(url: string, init?: RequestInit & { json?: unknown }): Promise<T> => (await send(url, init)).json() as Promise<T>;
+
+/** fetch for a file answer (an image, a PDF). */
+export const apiBlob = async (url: string, init?: RequestInit & { json?: unknown }): Promise<Blob> => (await send(url, init)).blob();
 
 export const cx = (...names: (string | false | null | undefined)[]) => names.filter(Boolean).join(' ');
 
