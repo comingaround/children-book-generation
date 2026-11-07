@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 import { HttpError, respond } from '@/lib/http-error';
+import { localOnly } from '@/lib/hosted';
 import { dataPath, listBooks } from '@/lib/store';
 
 const exec = promisify(execFile);
@@ -17,6 +18,7 @@ export async function GET() {
 /** Imports an uploaded PDF with scripts/import_pdf.py and returns the new book's id. */
 export async function POST(req: Request) {
   return respond('books:import', { status: 500, message: 'Import failed' }, async () => {
+    localOnly();
     const file = (await req.formData()).get('pdf');
     if (!(file instanceof File) || !file.name.toLowerCase().endsWith('.pdf')) throw new HttpError(400, 'Choose a PDF file');
     if (file.size > MAX_PDF_BYTES) throw new HttpError(413, 'That PDF is over 200 MB');

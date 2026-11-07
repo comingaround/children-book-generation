@@ -1,6 +1,7 @@
 import { generateJson } from '@/lib/ai/gemini';
 import { bookDraftPrompt, bookDraftSchema, pageDraftPrompt, pageDraftSchema, type BookDraft, type PageDraft } from '@/lib/ai/prompts';
 import { HttpError, respond } from '@/lib/http-error';
+import { localOnly } from '@/lib/hosted';
 import { forModel } from '@/lib/images';
 import { readDataFile, requireBook } from '@/lib/store';
 import type { Book, Box } from '@/lib/types';
@@ -13,6 +14,7 @@ import type { Book, Box } from '@/lib/types';
  */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   return respond('draft', { status: 500, message: 'Drafting failed' }, async () => {
+    localOnly();
     const book = await requireBook((await params).id);
     const body = (await req.json().catch(() => ({}))) as { index?: number; characters?: Book['characters']; settings?: Partial<Book['settings']> };
     if (body.characters) book.characters = body.characters;

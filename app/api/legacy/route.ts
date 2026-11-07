@@ -1,3 +1,4 @@
+import { HOSTED } from '@/lib/hosted';
 import { respond } from '@/lib/http-error';
 import { listPeople, listRuns } from '@/lib/store';
 
@@ -7,6 +8,7 @@ import { listPeople, listRuns } from '@/lib/store';
  */
 export async function GET() {
   return respond('legacy', { status: 500, message: 'Could not read the older saves' }, async () => {
+    if (HOSTED) return Response.json({ people: [], runs: [] });
     const [people, runs] = await Promise.all([listPeople(), listRuns()]);
     return Response.json({ people, runs });
   });

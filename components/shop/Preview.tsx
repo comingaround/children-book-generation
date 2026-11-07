@@ -25,15 +25,16 @@ const busyStep = (s: RunStep) => s.status === 'queued' || s.status === 'working'
  * The customer's side of a run: check the drawings, see the preview pages (protected from saving), order
  * the full book. The owner's tools for the same run (versions, fixes, costs) are on /runs/<id>.
  */
-export function Preview({ id, price }: { id: string; price: number }) {
+/** `pdf`: whether the PDF can be made here (not on the hosted demo, which has no Python). */
+export function Preview({ id, price, pdf }: { id: string; price: number; pdf: boolean }) {
   return (
     <LocalRun id={id} back="/">
-      {(loaded) => <PreviewBody {...loaded} price={price} />}
+      {(loaded) => <PreviewBody {...loaded} price={price} pdf={pdf} />}
     </LocalRun>
   );
 }
 
-function PreviewBody({ run, book, people, price }: { run: Run; book: Book; people: Person[]; price: number }) {
+function PreviewBody({ run, book, people, price, pdf }: { run: Run; book: Book; people: Person[]; price: number; pdf: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [reading, setReading] = useState(false);
   const [deleted, setDeleted] = useState(false);
@@ -68,7 +69,7 @@ function PreviewBody({ run, book, people, price }: { run: Run; book: Book; peopl
   const shared = rest.some((i) => canDrawTogether(book, book.pages.find((p) => p.index === i)!, castIds));
 
   async function order() {
-    const note = `Local demo, no payment. This draws the other ${rest.length} pages: about ${restImages} images, ${money(restImages * price)} of AI.`;
+    const note = `Demo, no payment. This draws the other ${rest.length} pages: about ${restImages} images, ${money(restImages * price)} of AI.`;
     if (!window.confirm(note)) return;
     await act(() => orderFullBook(run.id));
   }
@@ -227,12 +228,14 @@ function PreviewBody({ run, book, people, price }: { run: Run; book: Book; peopl
         <section className={cx(ui.panel, styles.order)}>
           <div className={styles.orderText}>
             <h2 className={ui.panelTitle}>Your book is ready</h2>
-            <p>Every page is done. Download it as a PDF, made from the original book with {who} in it.</p>
+            <p>{pdf ? `Every page is done. Download it as a PDF, made from the original book with ${who} in it.` : 'Every page is done. Read it above; in this demo the PDF is made only on the local version.'}</p>
           </div>
-          <button className={cx(ui.btn, ui.primary)} onClick={savePdf} disabled={saving}>
-            {saving && <span className={ui.spinner} />}
-            Download PDF
-          </button>
+          {pdf && (
+            <button className={cx(ui.btn, ui.primary)} onClick={savePdf} disabled={saving}>
+              {saving && <span className={ui.spinner} />}
+              Download PDF
+            </button>
+          )}
         </section>
       )}
 

@@ -13,7 +13,8 @@ const tabs = [
   { href: '/studio', label: 'Edit books', who: 'owner' },
 ];
 
-export function TopBar() {
+/** `hosted`: the public demo, which has only the customer's side. */
+export function TopBar({ hosted }: { hosted: boolean }) {
   const path = usePathname();
   const owner = ['/studio', '/books', '/runs'].some((p) => path.startsWith(p));
   return (
@@ -25,7 +26,7 @@ export function TopBar() {
         </span>
       </Link>
       <nav className={styles.tabs}>
-        {tabs.map((t) => {
+        {tabs.filter((t) => !hosted || t.who === 'customer').map((t) => {
           const on = (t.who === 'owner') === owner;
           return (
             <Link key={t.href} href={t.href} className={cx(styles.tab, on && styles.tabOn)} aria-current={on ? 'page' : undefined}>
@@ -35,7 +36,7 @@ export function TopBar() {
           );
         })}
       </nav>
-      <span className={styles.tag}>Internal · local only</span>
+      <span className={styles.tag}>{hosted ? 'Demo · your photos stay in this browser' : 'Internal · local only'}</span>
     </header>
   );
 }

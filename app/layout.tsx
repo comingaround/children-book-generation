@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Geist, Petrona } from 'next/font/google';
 
 import { TopBar } from '@/components/TopBar';
+import { HOSTED } from '@/lib/hosted';
 
 import './globals.css';
 
@@ -17,7 +18,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="en" className={`${petrona.variable} ${geist.variable}`}>
       <body>
-        <TopBar />
+        <TopBar hosted={HOSTED} />
         {children}
       </body>
     </html>

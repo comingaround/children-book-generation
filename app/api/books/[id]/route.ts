@@ -1,4 +1,5 @@
 import { HttpError, respond } from '@/lib/http-error';
+import { localOnly } from '@/lib/hosted';
 import { deleteBook, requireBook, saveBook } from '@/lib/store';
 import type { Book } from '@/lib/types';
 
@@ -11,6 +12,7 @@ export async function GET(_req: Request, { params }: Ctx) {
 /** Saves the editable parts: title, cast, settings and each page's type, scene and cast. Images and text stay as imported. */
 export async function PUT(req: Request, { params }: Ctx) {
   return respond('book:save', { status: 500, message: 'Could not save the book' }, async () => {
+    localOnly();
     const book = await requireBook((await params).id);
     const body = (await req.json()) as Partial<Book>;
     if (typeof body.title === 'string' && body.title.trim()) book.title = body.title.trim();
@@ -32,6 +34,7 @@ export async function PUT(req: Request, { params }: Ctx) {
 
 export async function DELETE(_req: Request, { params }: Ctx) {
   return respond('book:delete', { status: 500, message: 'Could not delete the book' }, async () => {
+    localOnly();
     await deleteBook((await requireBook((await params).id)).id);
     return Response.json({ ok: true });
   });
