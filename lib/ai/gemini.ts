@@ -1,15 +1,17 @@
 import 'server-only';
 
+import { createSign } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { HttpError } from '../http-error';
 
 /**
- * Minimal Gemini client for a local tool. Auth, first configured wins:
+ * Minimal Gemini client. Auth, first configured wins:
  *   1. GEMINI_API_KEY — Google AI Studio.
- *   2. Vertex AI (VERTEX_PROJECT_ID) with VERTEX_ACCESS_TOKEN, or VERTEX_USE_ADC=1 for the
- *      local `gcloud auth application-default login`.
+ *   2. Vertex AI (VERTEX_PROJECT_ID) with VERTEX_ACCESS_TOKEN; or GOOGLE_SERVICE_ACCOUNT_KEY (a
+ *      service account's JSON key, for the hosted demo); or VERTEX_USE_ADC=1 for the local
+ *      `gcloud auth application-default login`.
  */
 
 const TOKEN_TIMEOUT_MS = 8_000;
@@ -38,36 +40,57 @@ function adcPath(): string {
     : join(process.env.HOME ?? '', '.config', 'gcloud', 'application_default_credentials.json');
 }
 
-/** Refreshes the gcloud application-default login; reused until 5 minutes before expiry. */
-async function adcToken(): Promise<string> {
+/** Asks Google's token endpoint for an access token; reused until 5 minutes before expiry. */
+async function fetchToken(what: string, url: string, body: Record<string, string>): Promise<string> {
   if (g.geminiToken && g.geminiToken.expiresAt > Date.now()) return g.geminiToken.token;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams(body),
+    signal: AbortSignal.timeout(TOKEN_TIMEOUT_MS),
+  });
+  const json = (await res.json().catch(() => ({}))) as { access_token?: string; expires_in?: number; error?: string };
+  if (!res.ok || !json.access_token) {
+    throw new GeminiError(
+      `${what} token failed (HTTP ${res.status}): ${json.error ?? ''}`,
+      json.error === 'invalid_grant' && what === 'gcloud login' ? 'Google login expired — run `gcloud auth application-default login`' : UNAVAILABLE
+    );
+  }
+  g.geminiToken = { token: json.access_token, expiresAt: Date.now() + ((json.expires_in ?? 3600) - 300) * 1000 };
+  return json.access_token;
+}
 
+/** Refreshes the gcloud application-default login. */
+async function adcToken(): Promise<string> {
   const path = adcPath();
   if (!existsSync(path)) throw new GeminiError('No gcloud login — run `gcloud auth application-default login`', NOT_CONFIGURED);
   const cred = JSON.parse(readFileSync(path, 'utf8')) as Record<string, string | undefined>;
   if (cred.type !== 'authorized_user' || !cred.refresh_token) {
     throw new GeminiError(`Unsupported ADC credential type "${cred.type}"`, NOT_CONFIGURED);
   }
-  const res = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'refresh_token',
-      client_id: cred.client_id ?? '',
-      client_secret: cred.client_secret ?? '',
-      refresh_token: cred.refresh_token,
-    }),
-    signal: AbortSignal.timeout(TOKEN_TIMEOUT_MS),
+  return fetchToken('gcloud login', 'https://oauth2.googleapis.com/token', {
+    grant_type: 'refresh_token',
+    client_id: cred.client_id ?? '',
+    client_secret: cred.client_secret ?? '',
+    refresh_token: cred.refresh_token,
   });
-  const json = (await res.json().catch(() => ({}))) as { access_token?: string; expires_in?: number; error?: string };
-  if (!res.ok || !json.access_token) {
-    throw new GeminiError(
-      `gcloud login refresh failed (HTTP ${res.status}): ${json.error ?? ''}`,
-      json.error === 'invalid_grant' ? 'Google login expired — run `gcloud auth application-default login`' : UNAVAILABLE
-    );
+}
+
+/** A service account's JSON key, signed into a short JWT and swapped for an access token. */
+async function serviceAccountToken(keyJson: string): Promise<string> {
+  let key: { client_email?: string; private_key?: string; token_uri?: string };
+  try {
+    key = JSON.parse(keyJson);
+  } catch {
+    throw new GeminiError('GOOGLE_SERVICE_ACCOUNT_KEY is not valid JSON', NOT_CONFIGURED);
   }
-  g.geminiToken = { token: json.access_token, expiresAt: Date.now() + ((json.expires_in ?? 3600) - 300) * 1000 };
-  return json.access_token;
+  if (!key.client_email || !key.private_key) throw new GeminiError('GOOGLE_SERVICE_ACCOUNT_KEY lacks client_email or private_key', NOT_CONFIGURED);
+  const aud = key.token_uri ?? 'https://oauth2.googleapis.com/token';
+  const now = Math.floor(Date.now() / 1000);
+  const part = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64url');
+  const unsigned = `${part({ alg: 'RS256', typ: 'JWT' })}.${part({ iss: key.client_email, scope: 'https://www.googleapis.com/auth/cloud-platform', aud, iat: now, exp: now + 3600 })}`;
+  const signature = createSign('RSA-SHA256').update(unsigned).sign(key.private_key, 'base64url');
+  return fetchToken('service account', aud, { grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: `${unsigned}.${signature}` });
 }
 
 async function endpoint(model: string): Promise<{ url: string; headers: Record<string, string> }> {
@@ -85,6 +108,7 @@ async function endpoint(model: string): Promise<{ url: string; headers: Record<s
   const host = location === 'global' ? 'aiplatform.googleapis.com' : `${location}-aiplatform.googleapis.com`;
 
   let token = process.env.VERTEX_ACCESS_TOKEN;
+  if (!token && process.env.GOOGLE_SERVICE_ACCOUNT_KEY) token = await serviceAccountToken(process.env.GOOGLE_SERVICE_ACCOUNT_KEY);
   if (!token && process.env.VERTEX_USE_ADC === '1') token = await adcToken();
   if (!token) throw new GeminiError('No Vertex credential configured', NOT_CONFIGURED);
 

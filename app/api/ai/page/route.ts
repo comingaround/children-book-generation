@@ -1,4 +1,5 @@
 import { drawPageStep, type PageMember } from '@/lib/draw';
+import { spendImage } from '@/lib/guard';
 import { respond } from '@/lib/http-error';
 import { requireBook } from '@/lib/store';
 import { fileOf, jpegResponse, specOf } from '@/lib/upload';
@@ -20,6 +21,7 @@ interface Spec {
  */
 export async function POST(req: Request) {
   return respond('ai:page', { status: 500, message: 'Something went wrong — try again' }, async () => {
+    spendImage(req);
     const form = await req.formData();
     const spec = specOf<Spec>(form);
     const book = await requireBook(spec.bookId);
