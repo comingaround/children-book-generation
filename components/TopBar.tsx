@@ -13,7 +13,7 @@ const tabs = [
   { href: '/studio', label: 'Edit books', who: 'owner' },
 ];
 
-/** `hosted`: the public demo, which has only the customer's side. */
+/** `hosted`: the public demo, where everything a visitor makes stays in their browser. */
 export function TopBar({ hosted }: { hosted: boolean }) {
   const path = usePathname();
   const owner = ['/studio', '/books', '/runs'].some((p) => path.startsWith(p));
@@ -26,7 +26,7 @@ export function TopBar({ hosted }: { hosted: boolean }) {
         </span>
       </Link>
       <nav className={styles.tabs}>
-        {tabs.filter((t) => !hosted || t.who === 'customer').map((t) => {
+        {tabs.map((t) => {
           const on = (t.who === 'owner') === owner;
           return (
             <Link key={t.href} href={t.href} className={cx(styles.tab, on && styles.tabOn)} aria-current={on ? 'page' : undefined}>

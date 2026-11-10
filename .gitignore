@@ -11,6 +11,9 @@ next-env.d.ts
 .env*
 !.env.example
 
+# pdf.js runtime files, copied on install (scripts/copy-pdfjs.mjs)
+/public/pdfjs/
+
 # Book PDFs, imported books, child photos and generated pages
 /data/
 /baby-books-to-gen/

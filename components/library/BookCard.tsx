@@ -1,7 +1,7 @@
 import Link from 'next/link';
 
 import { cx } from '@/lib/client';
-import { bookReady, fileUrl, pageReadiness, type Book } from '@/lib/types';
+import { bookFile, bookReady, fileUrl, pageReadiness, type Book } from '@/lib/types';
 
 import { CheckIcon } from '../icons';
 import ui from '../ui.module.css';
@@ -16,7 +16,7 @@ export function BookCard({ book, selected, onSelect }: { book: Book; selected?: 
     <>
       <span className={styles.cover} style={{ aspectRatio: `${book.pageWidth} / ${book.pageHeight}` }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={fileUrl(`books/${book.id}/${cover.thumb}`)} alt="" />
+        <img src={fileUrl(bookFile(book, cover.thumb))} alt="" />
         {selected && (
           <span className={styles.picked}>
             <CheckIcon />
@@ -35,7 +35,17 @@ export function BookCard({ book, selected, onSelect }: { book: Book; selected?: 
           </>
         )}
       </span>
-      {!onSelect && <span className={styles.visibility}>{bookReady(book) ? 'Customers see it' : 'Hidden from customers until every page is ready'}</span>}
+      {!onSelect && (
+        <span className={styles.visibility}>
+          {book.local
+            ? bookReady(book)
+              ? 'In this browser · under Make a book'
+              : 'In this browser · under Make a book once every page is ready'
+            : bookReady(book)
+              ? 'Customers see it'
+              : 'Hidden from customers until every page is ready'}
+        </span>
+      )}
     </>
   );
   return (

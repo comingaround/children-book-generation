@@ -1,12 +1,12 @@
 /**
- * A thin promise wrapper over this browser's IndexedDB. Stores: `people` and `runs` (JSON, by
- * id), `files` (Blobs, by key, see files.ts) and `meta` (small flags).
+ * A thin promise wrapper over this browser's IndexedDB. Stores: `books`, `people` and `runs`
+ * (JSON, by id), `files` (Blobs, by key, see files.ts) and `meta` (small flags).
  */
 
 const NAME = 'baby-book-preview';
-const VERSION = 1;
+const VERSION = 2;
 
-export type StoreName = 'people' | 'runs' | 'files' | 'meta';
+export type StoreName = 'books' | 'people' | 'runs' | 'files' | 'meta';
 
 let opening: Promise<IDBDatabase> | null = null;
 
@@ -15,12 +15,18 @@ function open(): Promise<IDBDatabase> {
     const req = indexedDB.open(NAME, VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
-      db.createObjectStore('people', { keyPath: 'id' });
-      db.createObjectStore('runs', { keyPath: 'id' });
-      db.createObjectStore('files');
-      db.createObjectStore('meta');
+      // Version 1 had no books; each store is made once, whichever version the browser had.
+      for (const name of ['books', 'people', 'runs'] as const) if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, { keyPath: 'id' });
+      for (const name of ['files', 'meta'] as const) if (!db.objectStoreNames.contains(name)) db.createObjectStore(name);
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      // A newer version opened in another tab: step aside so its upgrade can run.
+      req.result.onversionchange = () => {
+        req.result.close();
+        opening = null;
+      };
+      resolve(req.result);
+    };
     req.onerror = () => {
       opening = null;
       reject(new Error('This browser blocks local storage, so books cannot be saved here (a private window?)'));

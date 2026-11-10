@@ -2,11 +2,11 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-import type { Book, Person, Run, RunSummary } from '../types';
+import { bookFile, type Book, type Person, type Run, type RunSummary } from '../types';
 import { loadFiles } from './files';
 import { whenReady } from './legacy';
 import { kick } from './runner';
-import { getRun, listPeople, listRuns, loadBook, onChange, summarize, type Change } from './store';
+import { getLocalBook, getRun, listLocalBooks, listPeople, listRuns, loadBook, onChange, summarize, type Change } from './store';
 
 /**
  * Loads something from this browser's storage, again after each change it cares about, with
@@ -52,6 +52,37 @@ function useLocal<T>(load: () => Promise<T>, relevant: (change: Change) => boole
 const runFiles = (run: Run) => [...run.cast, ...Object.values(run.pages)].flatMap((s) => s.attempts.map((a) => a.file));
 
 const photos = (people: Person[]) => people.map((p) => p.photo);
+
+/** A browser book's files (pages, thumbs, fonts); a published book's come from the server. */
+const bookFiles = (book: Book, all = true) =>
+  book.local ? [...book.pages.flatMap((p) => (all ? [p.image, p.thumb] : [p.thumb])), ...(all ? book.fonts.map((f) => f.file) : [])].map((f) => bookFile(book, f)) : [];
+
+/** Books imported in this browser. `all`: every page's art too (the shop crops characters from it). */
+export function useLocalBooks(all = false): Book[] | undefined {
+  return useLocal(
+    async () => {
+      const books = await listLocalBooks();
+      await loadFiles(books.flatMap((b) => bookFiles(b, all)));
+      return books;
+    },
+    (c) => c.kind === 'books',
+    `books:${all}`
+  ).value;
+}
+
+/** One book imported in this browser, with every file it shows; `null` if it isn't here. */
+export function useLocalBook(id: string): { book: Book | null | undefined; error: string | null } {
+  const { value, error } = useLocal(
+    async () => {
+      const book = await getLocalBook(id);
+      if (book) await loadFiles(bookFiles(book));
+      return book;
+    },
+    () => false,
+    `book:${id}`
+  );
+  return { book: value, error };
+}
 
 /** Everyone saved in this browser. */
 export function usePeople(): Person[] | undefined {
@@ -99,7 +130,7 @@ export function useRun(id: string): { loaded: LoadedRun | null | undefined; erro
       if (!run) return null;
       if (book.current?.id !== run.bookId) book.current = await loadBook(run.bookId);
       const people = (await listPeople()).filter((p) => run.cast.some((c) => c.personId === p.id));
-      await loadFiles([...runFiles(run), ...photos(people)]);
+      await loadFiles([...runFiles(run), ...photos(people), ...bookFiles(book.current)]);
       return { run, book: book.current, people };
     },
     (c) => (c.kind === 'run' && c.id === id) || c.kind === 'people',

@@ -3,7 +3,7 @@
 import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 
 import { cx, swapName } from '@/lib/client';
-import { fileUrl, type Book, type Page, type TextLine } from '@/lib/types';
+import { bookFile, fileUrl, type Book, type Page, type TextLine } from '@/lib/types';
 
 import styles from './BookPage.module.css';
 
@@ -14,7 +14,7 @@ export function BookFonts({ book }: { book: Book }) {
   const css = book.fonts
     .map(
       (f) =>
-        `@font-face{font-family:${family(book, f)};src:url(${fileUrl(`books/${book.id}/${f.file}`)});font-weight:${f.weight};font-style:${f.italic ? 'italic' : 'normal'};font-display:block}`
+        `@font-face{font-family:${family(book, f)};src:url(${fileUrl(bookFile(book, f.file))});font-weight:${f.weight};font-style:${f.italic ? 'italic' : 'normal'};font-display:block}`
     )
     .join('\n');
   return <style>{css}</style>;
@@ -87,7 +87,7 @@ export function BookPage({ book, page, art, names = [], texts, showText = true, 
     <div ref={root} className={cx(styles.page, className)} style={{ aspectRatio: `${book.pageWidth} / ${book.pageHeight}` }}>
       <div className={styles.art} style={{ left: `${x0}%`, top: `${y0}%`, width: `${x1 - x0}%`, height: `${y1 - y0}%` }}>
         {/* eslint-disable-next-line @next/next/no-img-element -- local files, any size */}
-        <img src={art ? fileUrl(art) : fileUrl(`books/${book.id}/${page.image}`)} alt="" draggable={false} />
+        <img src={art ? fileUrl(art) : fileUrl(bookFile(book, page.image))} alt="" draggable={false} />
         {overlay}
       </div>
       {showText &&

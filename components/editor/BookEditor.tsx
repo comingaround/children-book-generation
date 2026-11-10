@@ -6,8 +6,11 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 
 import type { BookDraft, CastDraft } from '@/lib/ai/prompts';
 import { api, cx, nameRegex } from '@/lib/client';
+import { bookSpec, deleteBook as removeBook, saveBook } from '@/lib/local/store';
 import {
+  bookFile,
   castOn,
+  draftImages,
   fileUrl,
   GENDERS,
   pageReadiness,
@@ -90,10 +93,7 @@ export function BookEditor({ initial }: { initial: Book }) {
     const timer = setTimeout(async () => {
       setSave('saving');
       try {
-        await api(`/api/books/${book.id}`, {
-          method: 'PUT',
-          json: { title: book.title, characters: book.characters, settings: book.settings, pages: book.pages },
-        });
+        await saveBook(book);
         setSave('saved');
       } catch {
         setSave('error');
@@ -153,9 +153,16 @@ export function BookEditor({ initial }: { initial: Book }) {
     setActive(book.characters.find((c) => c.id !== target.id)?.id ?? '');
   }
 
+  /** "Prepare with AI" for the book (no `index`) or one page; a browser book goes with its art. */
+  async function askDraft<T>(fields: { index?: number; characters?: BookCharacter[]; settings?: BookSettings }): Promise<T> {
+    const form = new FormData();
+    form.set('spec', JSON.stringify({ ...(await bookSpec(book, form, draftImages(book, fields.index))), ...fields }));
+    return api<T>('/api/ai/draft', { method: 'POST', body: form });
+  }
+
   /** Finds the book's characters and art style; merges them in without overwriting edits. */
   async function findCharacters(): Promise<{ characters: BookCharacter[]; settings: BookSettings }> {
-    const draft = await api<BookDraft>(`/api/books/${book.id}/draft`, { method: 'POST', json: {} });
+    const draft = await askDraft<BookDraft>({});
     const characters = mergeCharacters(book.characters, draft.characters);
     const settings = book.settings.artStyle.trim() ? book.settings : { ...book.settings, artStyle: draft.artStyle };
     change((b) => ({ ...b, characters, settings }));
@@ -168,10 +175,7 @@ export function BookEditor({ initial }: { initial: Book }) {
    * `onlyMissing` (Prepare all) fills only characters and fields not set yet, so edits survive.
    */
   async function draftPage(target: Page, characters = book.characters, settings = book.settings, onlyMissing = false) {
-    const draft = await api<{ scenePrompt: string; cast: (Omit<CastDraft, 'box'> & { box: Box | null })[] }>(`/api/books/${book.id}/draft`, {
-      method: 'POST',
-      json: { index: target.index, characters, settings },
-    });
+    const draft = await askDraft<{ scenePrompt: string; cast: (Omit<CastDraft, 'box'> & { box: Box | null })[] }>({ index: target.index, characters, settings });
     change((b) => ({
       ...b,
       pages: b.pages.map((p) => {
@@ -232,8 +236,8 @@ export function BookEditor({ initial }: { initial: Book }) {
   async function deleteBook() {
     if (!window.confirm(`Delete "${book.title}" and its imported pages? Runs made from it will stop opening.`)) return;
     await withBusy('delete', async () => {
-      await api(`/api/books/${book.id}`, { method: 'DELETE' });
-      router.push('/');
+      await removeBook(book);
+      router.push('/studio');
     });
   }
 
@@ -291,7 +295,7 @@ export function BookEditor({ initial }: { initial: Book }) {
               >
                 <span className={styles.thumbImg} style={{ aspectRatio: `${book.pageWidth} / ${book.pageHeight}` }}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={fileUrl(`books/${book.id}/${p.thumb}`)} alt="" />
+                  <img src={fileUrl(bookFile(book, p.thumb))} alt="" />
                   <span className={cx(ui.dot, styles.thumbDot, STATE[thumbState].dot)} />
                 </span>
                 <span className={styles.thumbLabel}>{p.kind === 'cover' ? 'Cover' : `Page ${p.index}`}</span>

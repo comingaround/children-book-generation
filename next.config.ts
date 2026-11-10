@@ -9,7 +9,7 @@ const nextConfig: NextConfig = {
     '/**/*': ['./data/books/**/*'],
   },
   outputFileTracingExcludes: {
-    '/**/*': ['./data/books/**/*.pdf', './data/runs/**/*', './data/children/**/*', './data/uploads/**/*'],
+    '/**/*': ['./data/runs/**/*', './data/children/**/*', './data/uploads/**/*'],
   },
   experimental: {
     // Set by `next upgrade --agent=security` (16.4.0 → 16.4.3).

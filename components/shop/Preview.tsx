@@ -25,16 +25,16 @@ const busyStep = (s: RunStep) => s.status === 'queued' || s.status === 'working'
  * The customer's side of a run: check the drawings, see the preview pages (protected from saving), order
  * the full book. The owner's tools for the same run (versions, fixes, costs) are on /runs/<id>.
  */
-/** `pdf`: whether the PDF can be made here (not on the hosted demo, which has no Python). */
-export function Preview({ id, price, pdf }: { id: string; price: number; pdf: boolean }) {
+/** `serverPdf`: published books' PDFs are made by the server (the local version, with Python). */
+export function Preview({ id, price, serverPdf }: { id: string; price: number; serverPdf: boolean }) {
   return (
     <LocalRun id={id} back="/">
-      {(loaded) => <PreviewBody {...loaded} price={price} pdf={pdf} />}
+      {(loaded) => <PreviewBody {...loaded} price={price} serverPdf={serverPdf} />}
     </LocalRun>
   );
 }
 
-function PreviewBody({ run, book, people, price, pdf }: { run: Run; book: Book; people: Person[]; price: number; pdf: boolean }) {
+function PreviewBody({ run, book, people, price, serverPdf }: { run: Run; book: Book; people: Person[]; price: number; serverPdf: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [reading, setReading] = useState(false);
   const [deleted, setDeleted] = useState(false);
@@ -84,7 +84,7 @@ function PreviewBody({ run, book, people, price, pdf }: { run: Run; book: Book; 
 
   async function savePdf() {
     setSaving(true);
-    await act(() => downloadPdf(book, run, names, false));
+    await act(() => downloadPdf(book, run, names, false, serverPdf));
     setSaving(false);
   }
 
@@ -228,14 +228,12 @@ function PreviewBody({ run, book, people, price, pdf }: { run: Run; book: Book; 
         <section className={cx(ui.panel, styles.order)}>
           <div className={styles.orderText}>
             <h2 className={ui.panelTitle}>Your book is ready</h2>
-            <p>{pdf ? `Every page is done. Download it as a PDF, made from the original book with ${who} in it.` : 'Every page is done. Read it above; in this demo the PDF is made only on the local version.'}</p>
+            <p>Every page is done. Download it as a PDF, made from the original book with {who} in it.</p>
           </div>
-          {pdf && (
-            <button className={cx(ui.btn, ui.primary)} onClick={savePdf} disabled={saving}>
-              {saving && <span className={ui.spinner} />}
-              Download PDF
-            </button>
-          )}
+          <button className={cx(ui.btn, ui.primary)} onClick={savePdf} disabled={saving}>
+            {saving && <span className={ui.spinner} />}
+            Download PDF
+          </button>
         </section>
       )}
 

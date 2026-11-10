@@ -4,7 +4,7 @@
 //   node scripts/stage-deploy.mjs <out-dir> <book-id> [<book-id> ...]
 //
 // Each book's pages are re-saved as JPEG (Vercel answers at most 4.5 MB per response, and some
-// imported pages are larger PNGs); the source PDF is left out.
+// imported pages are larger PNGs). The source PDF goes too: the browser builds the PDF from it.
 
 import { execFileSync } from 'node:child_process';
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -30,6 +30,7 @@ for (const id of books) {
   const to = join(out, 'data', 'books', id);
   const book = JSON.parse(readFileSync(join(from, 'book.json'), 'utf8'));
   for (const dir of ['thumbs', 'fonts']) cpSync(join(from, dir), join(to, dir), { recursive: true });
+  cpSync(join(from, book.source), join(to, book.source));
   mkdirSync(join(to, 'pages'), { recursive: true });
   for (const page of book.pages) {
     const jpg = page.image.replace(/\.\w+$/, '.jpg');

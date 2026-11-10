@@ -1,16 +1,16 @@
 import { api } from '../client';
 import { migratePerson, migrateRun } from '../migrate';
-import { chosenFile, type Book, type Person, type Run, type RunSummary } from '../types';
-import { deleteFile, deleteFiles, localKey } from './files';
+import { bookFile, chosenFile, type Book, type Person, type Run, type RunSummary } from '../types';
+import { deleteFile, deleteFiles, localKey, readFile } from './files';
 import { del, get, getAll, put, request, tx } from './idb';
 
 /**
- * People and runs, kept in this browser. Every change is announced (here and in other tabs of
+ * People, runs and imported books, kept in this browser. Every change is announced (here and in other tabs of
  * the same site) so open pages update without polling; `kick` asks the tab drawing a run to
  * look at it again (runner.ts).
  */
 
-export type Change = { kind: 'run'; id: string } | { kind: 'people' } | { kind: 'kick'; id: string };
+export type Change = { kind: 'run'; id: string } | { kind: 'people' } | { kind: 'books' } | { kind: 'kick'; id: string };
 
 const events = typeof window === 'undefined' ? null : new EventTarget();
 let channel: BroadcastChannel | null = null;
@@ -40,9 +40,45 @@ export function newId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}${random}`;
 }
 
-// ---- books (on the server) ---------------------------------------------------------------
+// ---- books ------------------------------------------------------------------------------
+// Books imported in this browser are kept here (local: true); published ones are on the server.
 
-export const loadBook = (id: string) => api<Book>(`/api/books/${id}`);
+export const getLocalBook = async (id: string) => (await get<Book>('books', id)) ?? null;
+
+export const listLocalBooks = async () => (await getAll<Book>('books')).sort((a, b) => a.title.localeCompare(b.title));
+
+/** A book by id: this browser's own first, else the server's. */
+export const loadBook = async (id: string) => (await getLocalBook(id)) ?? api<Book>(`/api/books/${id}`);
+
+/** Saves a book where it lives: this browser, or (the owner, locally) data/books/ on the server. */
+export async function saveBook(book: Book): Promise<void> {
+  if (book.local) {
+    await put('books', book);
+    emit({ kind: 'books' });
+    return;
+  }
+  await api(`/api/books/${book.id}`, { method: 'PUT', json: { title: book.title, characters: book.characters, settings: book.settings, pages: book.pages } });
+}
+
+export async function deleteBook(book: Book): Promise<void> {
+  if (!book.local) {
+    await api(`/api/books/${book.id}`, { method: 'DELETE' });
+    return;
+  }
+  await del('books', book.id);
+  await deleteFiles(localKey(`books/${book.id}/`));
+  emit({ kind: 'books' });
+}
+
+/**
+ * Names the book in an AI call's spec: a published one by id, a browser one whole, with the art
+ * the call reads (`images`, paths from book.json) attached as files (see lib/book-input.ts).
+ */
+export async function bookSpec(book: Book, form?: FormData, images: string[] = []): Promise<{ bookId: string } | { book: Book }> {
+  if (!book.local) return { bookId: book.id };
+  for (const image of new Set(images)) form?.set(`book:${image}`, await readFile(bookFile(book, image)));
+  return { book };
+}
 
 // ---- runs ------------------------------------------------------------------------------
 

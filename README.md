@@ -14,7 +14,7 @@ Needs Node 20+, Python 3 with PyMuPDF (`pip install pymupdf`) for the PDF import
 
 ## How a book is made
 
-1. **Import.** `scripts/import_pdf.py` takes each page's largest embedded image as its illustration, and its text lines with position, font, size and colour. It also extracts the PDF's embedded fonts. Covers, promo pages and back covers are detected and marked; ad lines and HTML printed as text are left out (and removed from exports too). The text is never part of the art, so no AI ever redraws lettering on story pages.
+1. **Import.** Under Edit books the browser imports a PDF with pdf.js (`lib/local/import.ts`); `scripts/import_pdf.py` does the same on the server for the books we publish. Both take each page's largest embedded image as its illustration, and its text lines with position, font, size and colour. It also extracts the PDF's embedded fonts. Covers, promo pages and back covers are detected and marked; ad lines and HTML printed as text are left out (and removed from exports too). The text is never part of the art, so no AI ever redraws lettering on story pages.
 2. **Prepare** (book editor). Two tabs. **Characters**: the book's cast (name in the text, gender, how to recognise them, usual clothing) and, per page, which of them are on it, a box around each, their pose and direction, and an optional clothing override. **Scene & style**: page type, the scene, and the art style that goes with every drawing. **Prepare all pages with AI** finds the cast and fills every page with the cheap text model (Gemini Flash, which also finds the boxes) without overwriting edits; you correct what's wrong.
 3. **Drawings** (run, step 1). On Make a book you pick a book, then who plays each character (adding a photo with consent if needed), and start a free preview: the drawings, the cover and one page. Ordering the full book adds every other page with those characters. Nano Banana Pro draws each person from their photo in the book's style, in their character's outfit. The run stops until you approve the drawings; approved drawings are saved and reused for that book and character next time.
 4. **Pages** (run, step 2). Each assigned character on a page is replaced in turn. Only the face, hair, skin tone and glasses change; clothing, pose and direction stay as in the book.
@@ -26,7 +26,7 @@ Needs Node 20+, Python 3 with PyMuPDF (`pip install pymupdf`) for the PDF import
    - Two pages run at a time, with retries when Google is busy.
    - **The browser runs it.** The loop lives in the page (`lib/local/runner.ts`) and sends one image call at a time to the server, which saves nothing. Close the tab and the run pauses; open it again and it carries on. One tab draws a run, and other open tabs follow along.
 5. **View.** The page is rebuilt in the browser: the new illustration, with the original text lines on top in the book's own fonts and each character's name swapped for their person's. When someone's gender differs from their character's, Gemini Flash rewrites he/she and the like in one call per run. Before/after slider per page, a version history per page, and a book view. The customer's preview can't be selected, dragged or right-clicked.
-6. **PDF.** The browser sends the run's art; `scripts/export_pdf.py` builds the book from its original PDF: the new art in place of each illustration, changed lines re-set in the book's own font, skipped pages left out. **Print PDF** adds 300 dpi art (resampled) and 3 mm bleed.
+6. **PDF.** Built from the book's original PDF: the new art in place of each illustration, the lines whose text changed removed and set again in the book's own font (the subset the page itself carries), skipped pages left out. **Print PDF** adds 300 dpi art (resampled) and 3 mm bleed. The browser makes it with pdf-lib (`lib/local/export.ts`; the `@cantoo` fork, which opens owner-password books); for published books on the local version `scripts/export_pdf.py` does.
 
 ## Structure
 
@@ -43,7 +43,7 @@ components/                one folder per screen (shop = customer, library/edito
 lib/
   ai/gemini.ts             Gemini client (API key or Vertex + local gcloud login), retries
   ai/prompts.ts            character, page and "Draft with AI" prompts
-  local/                   the browser side: IndexedDB storage (people, runs, images), the run loop
+  local/                   the browser side: IndexedDB storage (books, people, runs, images), PDF import and export, the run loop
                            (runner.ts: character → approval → pages), hooks, PDF download, the one-time copy of older saves
   draw.ts                  the server side of one image call: close-up, prompt, blend back
   images.ts                sharp: model inputs, aspect padding, box blend
@@ -56,7 +56,7 @@ scripts/export_pdf.py      run → PDF from the book's source PDF
 data/                      books/ (gitignored); children/ and runs/ only hold saves from before runs moved to the browser
 ```
 
-**Where things are kept.** Books are plain files in `data/books/` on the server, so a book can be inspected or deleted by hand. People, their photos and every run (drawings, pages, versions) are kept in the browser that made them (IndexedDB), never on the server. Another browser doesn't see them, and clearing the site's data removes them. The first time a browser opens the app, it copies in the people and runs that older versions saved in `data/`.
+**Where things are kept.** Published books are plain files in `data/books/` on the server, so a book can be inspected or deleted by hand. Books imported under Edit books stay in the browser, like everything else a visitor makes. People, their photos and every run (drawings, pages, versions) are kept in the browser that made them (IndexedDB), never on the server. Another browser doesn't see them, and clearing the site's data removes them. The first time a browser opens the app, it copies in the people and runs that older versions saved in `data/`.
 
 ## Not built yet
 

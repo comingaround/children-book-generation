@@ -10,6 +10,8 @@ const TYPES: Record<string, string> = {
   '.webp': 'image/webp',
   '.ttf': 'font/ttf',
   '.otf': 'font/otf',
+  // A published book's source PDF: the browser builds the finished book's PDF from it.
+  '.pdf': 'application/pdf',
 };
 
 /** Serves the images and fonts under data/: the books, and older saves the browser copies once. */

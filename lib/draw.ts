@@ -21,9 +21,9 @@ import {
   unpad,
   type Region,
 } from './images';
-import { readDataFile } from './store';
+import type { BookInput } from './book-input';
 import { swapNames, textChanges, type TextCast } from './text';
-import { canDrawTogether, castOn, type Book, type BookCharacter, type Box, type Page, type PersonFacts } from './types';
+import { canDrawTogether, castOn, characterArt, type Book, type BookCharacter, type Box, type Page, type PersonFacts } from './types';
 
 /**
  * The paid image calls, one request each. Nothing is saved here: the browser sends the person's
@@ -45,15 +45,15 @@ export function pageOf(book: Book, index: number): Page {
 // ---- step 1: a person, drawn in the book's style ---------------------------------------
 
 /** The drawing as a JPEG. Images: the photo, the cover (for the style), the original character if boxed. */
-export async function drawCharacter(book: Book, characterId: string, person: PersonFacts, photo: Buffer): Promise<Buffer> {
+export async function drawCharacter({ book, read }: BookInput, characterId: string, person: PersonFacts, photo: Buffer): Promise<Buffer> {
   const character = characterOf(book, characterId);
-  const style = book.pages.find((p) => p.kind === 'cover') ?? book.pages[0];
-  const styleArt = await readDataFile(`books/${book.id}/${style.image}`);
+  const style = characterArt(book, characterId).style;
+  const styleArt = await read(style.image);
 
   const images = [await forModel(photo, 1536), await forModel(styleArt, 1536)];
-  const sample = book.pages.find((p) => p.kind !== 'skip' && p.cast[characterId]?.present && p.cast[characterId].box);
+  const { sample } = characterArt(book, characterId);
   if (sample) {
-    const art = sample === style ? styleArt : await readDataFile(`books/${book.id}/${sample.image}`);
+    const art = sample === style ? styleArt : await read(sample.image);
     const crop = await sharp(art).extract(boxRegion(sample.cast[characterId].box!, sample.imageWidth, sample.imageHeight)).toBuffer();
     images.push(await forModel(crop, 1024));
   }
@@ -80,11 +80,11 @@ export interface PageMember {
  * are big in the model's view; the answer goes back into the page with a soft edge.
  * `fix` is for everyone on the page, or (`fixFor`) for one character only.
  */
-export async function drawPageStep(book: Book, index: number, art: Buffer | null, members: PageMember[], fix: string | null, fixFor: string | null): Promise<Buffer> {
+export async function drawPageStep({ book, read }: BookInput, index: number, art: Buffer | null, members: PageMember[], fix: string | null, fixFor: string | null): Promise<Buffer> {
   const page = pageOf(book, index);
   if (!members.length) throw new HttpError(400, 'No one to draw on this page');
   if (members.length > 1 && !canDrawTogether(book, page, members.map((m) => m.characterId))) throw new HttpError(400, 'These characters cannot be drawn at once on this page');
-  const original = art ?? (await readDataFile(`books/${book.id}/${page.image}`));
+  const original = art ?? (await read(page.image));
 
   const { imageWidth: w, imageHeight: h } = page;
   const pageBoxes = members.map((m) => castOn(page, m.characterId).box);

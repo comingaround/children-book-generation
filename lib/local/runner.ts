@@ -2,6 +2,7 @@ import { ApiError, api, apiBlob } from '../client';
 import { textChanges, type TextCast } from '../text';
 import {
   canDrawTogether,
+  characterArt,
   chosenFile,
   drawingKey,
   FIX_MAX,
@@ -9,13 +10,14 @@ import {
   testPages,
   type Book,
   type CastStep,
+  type Page,
   type Person,
   type Run,
   type RunStep,
   type StepStatus,
 } from '../types';
 import { copyFile, localKey, readFile, saveFile } from './files';
-import { addRun, emit, getRun, loadBook, mutate, newId, onChange, requirePerson, requireRun, savePerson } from './store';
+import { addRun, bookSpec, emit, getRun, loadBook, mutate, newId, onChange, requirePerson, requireRun, savePerson } from './store';
 
 /**
  * Runs are drawn by the page, not the server: this loop sends one image call at a time to the
@@ -180,9 +182,10 @@ async function rewriteText(runId: string): Promise<void> {
   try {
     const run = await requireRun(runId);
     const people = await Promise.all(run.cast.map((c) => requirePerson(c.personId).catch(() => null)));
+    const book = await loadBook(run.bookId);
     const { text } = await api<{ text: Record<string, string[]> }>('/api/ai/text', {
       method: 'POST',
-      json: { bookId: run.bookId, cast: textCast(run, people.filter((p): p is Person => !!p)) },
+      json: { ...(await bookSpec(book)), cast: textCast(run, people.filter((p): p is Person => !!p)) },
     });
     await mutate(runId, (r) => {
       r.text = text;
@@ -214,8 +217,11 @@ async function drawCharacter(runId: string, characterId: string): Promise<void> 
     });
     const person = await requirePerson(castStep(run, characterId).personId);
     if (!person.photo) throw new Error(`${person.name} has no photo`);
+    const book = await loadBook(run.bookId);
+    const { style, sample } = characterArt(book, characterId);
     const form = new FormData();
-    form.set('spec', JSON.stringify({ bookId: run.bookId, characterId, person: personFacts(person) }));
+    const spec = await bookSpec(book, form, [style.image, ...(sample ? [sample.image] : [])]);
+    form.set('spec', JSON.stringify({ ...spec, characterId, person: personFacts(person) }));
     form.set('photo', await readFile(person.photo));
     const file = await saveFile(localKey(`runs/${runId}/cast-${characterId}-${Date.now().toString(36)}.jpg`), await apiBlob('/api/ai/character', { method: 'POST', body: form }));
 
@@ -296,9 +302,10 @@ interface Member {
 }
 
 /** One image call on a page: `group` replaced on `art` (null = the book's own art). */
-async function drawOnPage(run: Run, index: number, art: Blob | null, group: Member[], fix: string | null, fixFor: string | null): Promise<Blob> {
+async function drawOnPage(book: Book, page: Page, art: Blob | null, group: Member[], fix: string | null, fixFor: string | null): Promise<Blob> {
   const form = new FormData();
-  form.set('spec', JSON.stringify({ bookId: run.bookId, index, members: group.map((m) => ({ characterId: m.characterId, person: personFacts(m.person) })), fix, fixFor }));
+  const spec = await bookSpec(book, form, art ? [] : [page.image]);
+  form.set('spec', JSON.stringify({ ...spec, index: page.index, members: group.map((m) => ({ characterId: m.characterId, person: personFacts(m.person) })), fix, fixFor }));
   for (const [n, m] of group.entries()) {
     form.set(`photo-${n}`, await readFile(m.person.photo!));
     form.set(`drawing-${n}`, await readFile(m.drawing));
@@ -338,7 +345,7 @@ async function drawPage(runId: string, index: number): Promise<void> {
     for (const group of together ? [members] : members.map((m) => [m])) {
       const label = together ? '' : members.length > 1 ? `${group[0].label}: ` : '';
       await say(together ? 'Drawing everyone at once…' : `${label}drawing…`);
-      art = await drawOnPage(run, index, art, group, fix, fixFor);
+      art = await drawOnPage(book, page, art, group, fix, fixFor);
       await mutate(runId, (r) => void r.images++);
     }
 

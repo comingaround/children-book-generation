@@ -5,9 +5,9 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 import { ago, cx } from '@/lib/client';
-import { usePeople, useRunSummaries } from '@/lib/local/hooks';
+import { useLocalBooks, usePeople, useRunSummaries } from '@/lib/local/hooks';
 import { createRun } from '@/lib/local/runner';
-import { canDrawTogether, fileUrl, genderLabel, PREVIEW_PAGES, testPages, type Book, type BookCharacter, type Gender } from '@/lib/types';
+import { bookFile, bookReady, canDrawTogether, fileUrl, genderLabel, PREVIEW_PAGES, testPages, type Book, type BookCharacter, type Gender } from '@/lib/types';
 
 import { CheckIcon, PlusIcon } from '../icons';
 import { BookCard } from '../library/BookCard';
@@ -20,10 +20,13 @@ import styles from './MakeBook.module.css';
 
 /**
  * What a customer sees: choose a book → a photo for each character → a free preview.
- * `books`: only those that are fully prepared. People and runs are this browser's own.
+ * `books`: the published ones that are fully prepared; this browser's own ready books join them,
+ * as do its people and runs.
  */
-export function MakeBook({ books }: { books: Book[] }) {
+export function MakeBook({ books: published }: { books: Book[] }) {
   const router = useRouter();
+  const local = useLocalBooks(true);
+  const books = [...published, ...(local ?? []).filter(bookReady)];
   const [bookId, setBookId] = useState<string | null>(null);
   const people = usePeople();
   const runs = useRunSummaries(books) ?? [];
@@ -249,7 +252,7 @@ function CharacterCrop({ book, character }: { book: Book; character: BookCharact
       className={styles.crop}
       style={{
         aspectRatio: `${w * page.imageWidth} / ${h * page.imageHeight}`,
-        backgroundImage: `url(${fileUrl(`books/${book.id}/${page.image}`)})`,
+        backgroundImage: `url(${fileUrl(bookFile(book, page.image))})`,
         backgroundSize: `${10000 / w}% ${10000 / h}%`,
         backgroundPosition: `${at(x, w)}% ${at(y, h)}%`,
       }}

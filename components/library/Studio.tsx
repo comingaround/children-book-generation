@@ -4,8 +4,9 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
 
-import { ago, api, cx, money } from '@/lib/client';
-import { useRunSummaries } from '@/lib/local/hooks';
+import { ago, cx, money } from '@/lib/client';
+import { useLocalBooks, useRunSummaries } from '@/lib/local/hooks';
+import { importPdf as importInBrowser } from '@/lib/local/import';
 import { fileUrl, type Book, type RunSummary } from '@/lib/types';
 
 import { PlusIcon } from '../icons';
@@ -14,25 +15,29 @@ import ui from '../ui.module.css';
 import { BookCard } from './BookCard';
 import styles from './Library.module.css';
 
-/** Edit books: the owner's side. Import a PDF and prepare its characters, boxes and style. */
-export function Studio({ books, price }: { books: Book[]; price: number }) {
+/**
+ * Edit books: import a PDF and prepare its characters, boxes and style. `books` are the published
+ * ones (data/books/, editable on the local version only); imported books stay in this browser.
+ */
+export function Studio({ books: published, price }: { books: Book[]; price: number }) {
   const router = useRouter();
+  const local = useLocalBooks();
+  const books = [...published, ...(local ?? [])];
   const runs = useRunSummaries(books) ?? [];
-  const [importing, setImporting] = useState(false);
+  const [importing, setImporting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
+  /** Imports into this browser (pdf.js); `npm run import:samples` or scripts/import_pdf.py publish one. */
   async function importPdf(file: File) {
-    setImporting(true);
+    setImporting('Reading the PDF…');
     setError(null);
     try {
-      const form = new FormData();
-      form.set('pdf', file);
-      const { id } = await api<{ id: string }>('/api/books', { method: 'POST', body: form });
-      router.push(`/books/${id}`);
+      const book = await importInBrowser(file, setImporting);
+      router.push(`/books/${book.id}`);
     } catch (err) {
       setError((err as Error).message);
-      setImporting(false);
+      setImporting(null);
     }
   }
 
@@ -43,7 +48,7 @@ export function Studio({ books, price }: { books: Book[]; price: number }) {
           <div>
             <h1 className={styles.title}>Edit books</h1>
             <p className={ui.muted}>
-              For the shop owner: import a book once and prepare who is where. Customers see a book under Make a book once every page is ready.
+              Import a picture-book PDF and prepare who is where. Books you import stay in this browser and show under Make a book once every page is ready.
             </p>
           </div>
           <input
@@ -57,9 +62,9 @@ export function Studio({ books, price }: { books: Book[]; price: number }) {
               if (file) void importPdf(file);
             }}
           />
-          <button className={cx(ui.btn, ui.secondary)} onClick={() => fileInput.current?.click()} disabled={importing}>
+          <button className={cx(ui.btn, ui.secondary)} onClick={() => fileInput.current?.click()} disabled={!!importing}>
             {importing ? <span className={ui.spinner} /> : <PlusIcon />}
-            {importing ? 'Importing…' : 'Import PDF'}
+            {importing ?? 'Import PDF'}
           </button>
         </div>
 
@@ -73,7 +78,7 @@ export function Studio({ books, price }: { books: Book[]; price: number }) {
         {books.length === 0 ? (
           <div className={styles.empty}>
             <p className={styles.emptyTitle}>No books yet</p>
-            <p className={ui.muted}>Import a picture-book PDF to start, or run <code>npm run import:samples</code>.</p>
+            <p className={ui.muted}>Import a picture-book PDF to start.</p>
           </div>
         ) : (
           <ul className={styles.grid}>

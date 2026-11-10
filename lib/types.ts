@@ -105,6 +105,8 @@ export interface BookSettings {
 
 export interface Book {
   id: string;
+  /** Imported in this browser and kept there (lib/local/books.ts); else a book in data/books/ on the server. */
+  local?: boolean;
   title: string;
   source: string;
   importedAt: string;
@@ -219,6 +221,26 @@ export const personFacts = ({ name, gender, age, notes }: Person): PersonFacts =
 
 /** Where a file is shown from: this browser's storage (people, runs) or data/ on the server (books). */
 export const fileUrl = (path: string) => (path.startsWith(LOCAL) ? localUrl(path) : `/api/files/${path}`);
+
+/**
+ * The art a person's drawing is made from: the cover (for the style) and the first page where
+ * the character has a box (their outfit and build). A browser book sends these with the call.
+ */
+export function characterArt(book: Book, characterId: string): { style: Page; sample: Page | undefined } {
+  const style = book.pages.find((p) => p.kind === 'cover') ?? book.pages[0];
+  const sample = book.pages.find((p) => p.kind !== 'skip' && p.cast[characterId]?.present && p.cast[characterId].box);
+  return { style, sample };
+}
+
+/** The art "Prepare with AI" reads: a few pages for the whole book, or the one page `index`. */
+export function draftImages(book: Book, index?: number): string[] {
+  if (index !== undefined) return book.pages.filter((p) => p.index === index).map((p) => p.image);
+  const story = book.pages.filter((p) => p.kind === 'page');
+  return [book.pages.find((p) => p.kind === 'cover'), story[1], story[Math.floor(story.length / 2)]].filter((p) => !!p).map((p) => p.image);
+}
+
+/** A book's own file (page art, thumb, font), wherever the book is kept. */
+export const bookFile = (book: Pick<Book, 'id' | 'local'>, path: string) => `${book.local ? LOCAL : ''}books/${book.id}/${path}`;
 
 export const drawingKey = (bookId: string, characterId: string) => `${bookId}/${characterId}`;
 

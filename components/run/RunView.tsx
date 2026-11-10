@@ -37,15 +37,16 @@ function imageBreakdown(run: Run): string {
   return parts.join(' · ');
 }
 
-export function RunView({ id, price }: { id: string; price: number }) {
+/** `serverPdf`: published books' PDFs are made by the server (the local version, with Python). */
+export function RunView({ id, price, serverPdf }: { id: string; price: number; serverPdf: boolean }) {
   return (
     <LocalRun id={id} back="/studio">
-      {(loaded) => <RunBody {...loaded} price={price} />}
+      {(loaded) => <RunBody {...loaded} price={price} serverPdf={serverPdf} />}
     </LocalRun>
   );
 }
 
-function RunBody({ run, book, people, price }: { run: Run; book: Book; people: Person[]; price: number }) {
+function RunBody({ run, book, people, price, serverPdf }: { run: Run; book: Book; people: Person[]; price: number; serverPdf: boolean }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState<'pdf' | 'print' | null>(null);
@@ -78,7 +79,7 @@ function RunBody({ run, book, people, price }: { run: Run; book: Book; people: P
 
   async function savePdf(print: boolean) {
     setSaving(print ? 'print' : 'pdf');
-    await act(() => downloadPdf(book, run, names, print));
+    await act(() => downloadPdf(book, run, names, print, serverPdf));
     setSaving(null);
   }
 
