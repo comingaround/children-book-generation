@@ -46,11 +46,17 @@
   margin-left: auto;
 }
 
+/* A panel of its own, not ui.panel plus overrides: in production builds ui.module.css can load
+   after this file, and its column direction then won (the 320px basis below became height). */
 .order {
+  display: flex;
   flex-direction: row;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-4);
+  padding: var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
   background: var(--wash-sky);
 }
 

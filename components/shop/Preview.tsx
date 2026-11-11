@@ -225,7 +225,7 @@ function PreviewBody({ run, book, people, price, serverPdf }: { run: Run; book: 
       </section>
 
       {run.ordered && done === pages.length && (
-        <section className={cx(ui.panel, styles.order)}>
+        <section className={styles.order}>
           <div className={styles.orderText}>
             <h2 className={ui.panelTitle}>Your book is ready</h2>
             <p>Every page is done. Download it as a PDF, made from the original book with {who} in it.</p>
@@ -238,7 +238,7 @@ function PreviewBody({ run, book, people, price, serverPdf }: { run: Run; book: 
       )}
 
       {!run.ordered && rest.length > 0 && (
-        <section className={cx(ui.panel, styles.order)}>
+        <section className={styles.order}>
           <div className={styles.orderText}>
             <h2 className={ui.panelTitle}>Like it? Order the whole book</h2>
             {/* On a pastel wash, text stays ink (style guide §1.5). */}
