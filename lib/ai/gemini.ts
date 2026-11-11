@@ -1,17 +1,18 @@
 import 'server-only';
 
-import { createSign } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+import { headers } from 'next/headers';
 
 import { HttpError } from '../http-error';
 
 /**
  * Minimal Gemini client. Auth, first configured wins:
  *   1. GEMINI_API_KEY — Google AI Studio.
- *   2. Vertex AI (VERTEX_PROJECT_ID) with VERTEX_ACCESS_TOKEN; or GOOGLE_SERVICE_ACCOUNT_KEY (a
- *      service account's JSON key, for the hosted demo); or VERTEX_USE_ADC=1 for the local
- *      `gcloud auth application-default login`.
+ *   2. Vertex AI (VERTEX_PROJECT_ID) with VERTEX_ACCESS_TOKEN; or, on Vercel, its OIDC token
+ *      swapped for a service account's (VERTEX_WORKLOAD_AUDIENCE + VERTEX_SERVICE_ACCOUNT_EMAIL,
+ *      no key anywhere); or VERTEX_USE_ADC=1 for the local `gcloud auth application-default login`.
  */
 
 const TOKEN_TIMEOUT_MS = 8_000;
@@ -76,21 +77,56 @@ async function adcToken(): Promise<string> {
   });
 }
 
-/** A service account's JSON key, signed into a short JWT and swapped for an access token. */
-async function serviceAccountToken(keyJson: string): Promise<string> {
-  let key: { client_email?: string; private_key?: string; token_uri?: string };
+const CLOUD_PLATFORM = 'https://www.googleapis.com/auth/cloud-platform';
+
+/**
+ * Keyless sign-in on Vercel, as Cannaid's site does it (its pool `vercel` in cannaid-inference):
+ * Vercel's OIDC token for this request → Google STS → a federated token → an access token for the
+ * service account. Google must trust this project's token: Workload Identity User on the account
+ * for `…/subject/owner:<team>:project:baby-book-preview:environment:production`.
+ */
+async function vercelToken(audience: string, serviceAccount: string): Promise<string> {
+  if (g.geminiToken && g.geminiToken.expiresAt > Date.now()) return g.geminiToken.token;
+  // In a running function the token comes on the request; the env var exists only in builds.
+  let subjectToken = process.env.VERCEL_OIDC_TOKEN;
   try {
-    key = JSON.parse(keyJson);
+    subjectToken = (await headers()).get('x-vercel-oidc-token') || subjectToken;
   } catch {
-    throw new GeminiError('GOOGLE_SERVICE_ACCOUNT_KEY is not valid JSON', NOT_CONFIGURED);
+    // Outside a request (a script): the env var or nothing.
   }
-  if (!key.client_email || !key.private_key) throw new GeminiError('GOOGLE_SERVICE_ACCOUNT_KEY lacks client_email or private_key', NOT_CONFIGURED);
-  const aud = key.token_uri ?? 'https://oauth2.googleapis.com/token';
-  const now = Math.floor(Date.now() / 1000);
-  const part = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64url');
-  const unsigned = `${part({ alg: 'RS256', typ: 'JWT' })}.${part({ iss: key.client_email, scope: 'https://www.googleapis.com/auth/cloud-platform', aud, iat: now, exp: now + 3600 })}`;
-  const signature = createSign('RSA-SHA256').update(unsigned).sign(key.private_key, 'base64url');
-  return fetchToken('service account', aud, { grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: `${unsigned}.${signature}` });
+  if (!subjectToken) throw new GeminiError('No Vercel OIDC token on the request — is OIDC on for the project?', NOT_CONFIGURED);
+
+  const signal = AbortSignal.timeout(TOKEN_TIMEOUT_MS);
+  const sts = await fetch('https://sts.googleapis.com/v1/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      audience,
+      grantType: 'urn:ietf:params:oauth:grant-type:token-exchange',
+      requestedTokenType: 'urn:ietf:params:oauth:token-type:access_token',
+      scope: CLOUD_PLATFORM,
+      subjectTokenType: 'urn:ietf:params:oauth:token-type:jwt',
+      subjectToken,
+    }),
+    signal,
+  });
+  // Status only: a refused exchange's body can echo the token.
+  if (!sts.ok) throw new GeminiError(`Google STS refused the Vercel token (HTTP ${sts.status})`, UNAVAILABLE);
+  const federated = ((await sts.json()) as { access_token?: string }).access_token;
+  if (!federated) throw new GeminiError('Google STS returned no token', UNAVAILABLE);
+
+  const res = await fetch(`https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${encodeURIComponent(serviceAccount)}:generateAccessToken`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${federated}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scope: [CLOUD_PLATFORM] }),
+    signal,
+  });
+  if (!res.ok) throw new GeminiError(`Acting as ${serviceAccount} was refused (HTTP ${res.status}) — it needs Workload Identity User for this project`, UNAVAILABLE);
+  const minted = (await res.json()) as { accessToken?: string; expireTime?: string };
+  if (!minted.accessToken) throw new GeminiError('IAM Credentials returned no token', UNAVAILABLE);
+  const expires = Date.parse(minted.expireTime ?? '');
+  g.geminiToken = { token: minted.accessToken, expiresAt: (Number.isNaN(expires) ? Date.now() + 3_600_000 : expires) - 300_000 };
+  return minted.accessToken;
 }
 
 async function endpoint(model: string): Promise<{ url: string; headers: Record<string, string> }> {
@@ -108,7 +144,8 @@ async function endpoint(model: string): Promise<{ url: string; headers: Record<s
   const host = location === 'global' ? 'aiplatform.googleapis.com' : `${location}-aiplatform.googleapis.com`;
 
   let token = process.env.VERTEX_ACCESS_TOKEN;
-  if (!token && process.env.GOOGLE_SERVICE_ACCOUNT_KEY) token = await serviceAccountToken(process.env.GOOGLE_SERVICE_ACCOUNT_KEY);
+  const { VERTEX_WORKLOAD_AUDIENCE: audience, VERTEX_SERVICE_ACCOUNT_EMAIL: account } = process.env;
+  if (!token && audience && account) token = await vercelToken(audience, account);
   if (!token && process.env.VERTEX_USE_ADC === '1') token = await adcToken();
   if (!token) throw new GeminiError('No Vertex credential configured', NOT_CONFIGURED);
 
