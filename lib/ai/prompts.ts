@@ -29,14 +29,14 @@ export function characterPrompt(book: Book, character: BookCharacter, person: Pe
   const s = book.settings;
   const clothing = character.clothing.trim();
   return [
-    `Image 1 is a photo of a real person: ${who(person)}.${notes(person)}`,
+    `Image 1 is a photo of a real person: ${who(person)}.${notes(person)} It is a reference for their looks only: do not edit it, do not draw over it, and keep nothing from it but the person's face, hair and features — not its background, scenery, light, other people or clothes.`,
     `Image 2 is an illustration from the picture book "${book.title}".${s.artStyle ? ` Its art style: ${s.artStyle}.` : ''}`,
     withCrop ? `Image 3 shows the book's original ${character.label}. Use it only for the outfit and body proportions; do not copy their face or hair.` : '',
     'Draw a character reference of the person from image 1 as a picture-book character, in exactly the art style of image 2: the same line work, colouring, shading, level of detail and body proportions as the characters in that book.',
     'Keep them clearly recognisable: face shape, eyes, eyebrows, nose, hair colour, hair length and style, skin tone, facial hair, and any glasses or other distinctive features from the photo.',
     FACE_CONVENTIONS,
     clothing ? `Dress them exactly in the book's outfit: ${clothing}.` : `Dress them like the book's ${character.label}.`,
-    'One full-body figure, standing and facing the viewer in a relaxed neutral pose, on a plain warm off-white background. No other characters, no props, no text.',
+    'Make a completely new picture: one full-body figure, standing and facing the viewer in a relaxed neutral pose, alone on a plain, flat, warm off-white background that fills the whole frame — no scenery, no photo, no trace of image 1 behind or around them. No other characters, no props, no text.',
   ]
     .filter(Boolean)
     .join('\n');
