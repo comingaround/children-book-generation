@@ -1,7 +1,9 @@
+import { rm } from 'node:fs/promises';
+
 import { localOnly } from '@/lib/hosted';
 import { respond } from '@/lib/http-error';
 import { exportPdf } from '@/lib/pdf';
-import { requireBook, saveExample, writeDataFile } from '@/lib/store';
+import { dataPath, requireBook, saveExample, writeDataFile } from '@/lib/store';
 import { chosenFile, type Example, type PersonFacts, type Run, type RunStep } from '@/lib/types';
 import { fileOf, specOf } from '@/lib/upload';
 
@@ -27,6 +29,8 @@ export async function POST(req: Request) {
     const id = run.id;
     const dir = `examples/${id}`;
     const name = (key: string) => key.split('/').pop()!;
+    // Publishing again replaces the example: no files of an earlier version stay behind.
+    await rm(dataPath('examples', id), { recursive: true, force: true });
 
     /** Keeps the version a step shows, copied into the example's folder. */
     const keep = async (step: RunStep, sub: string): Promise<RunStep> => {
