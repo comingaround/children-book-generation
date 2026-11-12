@@ -4,10 +4,10 @@ import Link from 'next/link';
 import { useState } from 'react';
 
 import { cx } from '@/lib/client';
-import { chosenFile, fileUrl, type Book, type Example } from '@/lib/types';
+import { chosenFile, fileUrl, presentOn, type Book, type BookCharacter, type Example } from '@/lib/types';
 
 import { BookFonts, BookPage } from '../BookPage';
-import { BackIcon, BookIcon } from '../icons';
+import { BackIcon, BookIcon, RedoIcon } from '../icons';
 import { BeforeAfter } from '../run/BeforeAfter';
 import { Flipbook } from '../run/Flipbook';
 import run$ from '../run/RunView.module.css';
@@ -24,6 +24,7 @@ export function ExampleView({ example, book, pdfUrl }: { example: Example; book:
     .filter(([from, to]) => from && to);
   const who = cast.map((p) => p.name).join(', ').replace(/, ([^,]*)$/, ' & $1');
   const pages = run.pageIndexes.map((i) => book.pages.find((p) => p.index === i)).filter((p) => !!p);
+  const castIds = cast.map((p) => p.characterId);
 
   return (
     <main className={styles.layout}>
@@ -100,6 +101,7 @@ export function ExampleView({ example, book, pdfUrl }: { example: Example; book:
                 ) : (
                   <BookPage book={book} page={page} />
                 )}
+                <RedoPreview label={label} onPage={presentOn(book, page).filter((c) => castIds.includes(c.id))} />
               </li>
             );
           })}
@@ -118,5 +120,44 @@ export function ExampleView({ example, book, pdfUrl }: { example: Example; book:
 
       {reading && <Flipbook book={book} run={run} names={names} onClose={() => setReading(false)} />}
     </main>
+  );
+}
+
+/**
+ * The Regenerate controls a page has in your own book, shown switched off: the example is
+ * finished, but visitors should see that any page they don't like can be redrawn with a fix.
+ */
+function RedoPreview({ label, onPage }: { label: string; onPage: BookCharacter[] }) {
+  return (
+    // A tap focuses it, so the bubble shows on phones too.
+    <div className={styles.redoPreview} tabIndex={0} aria-describedby={`redo-${label}`} onClick={(e) => e.currentTarget.focus()}>
+      <span id={`redo-${label}`} role="tooltip" className={styles.redoBubble}>
+        Disabled for preview book
+      </span>
+      <fieldset disabled className={styles.redoControls}>
+        {onPage.length > 1 && (
+          <div className={ui.segmented} role="group" aria-label={`Who the fix for ${label} is for`}>
+            <button className={ui.segment} aria-pressed>
+              Everyone
+            </button>
+            {onPage.map((c) => (
+              <button key={c.id} className={ui.segment} aria-pressed={false}>
+                {c.label}
+              </button>
+            ))}
+          </div>
+        )}
+        <label className={run$.fix}>
+          <span className={ui.srOnly}>Optional correction for {label}</span>
+          <input className={cx(ui.input, run$.fixInput)} placeholder="Optional fix, e.g. facing away from us" />
+        </label>
+        <div className={run$.pageFoot}>
+          <button className={cx(ui.btn, ui.secondary, ui.small, run$.redo)}>
+            <RedoIcon />
+            Regenerate
+          </button>
+        </div>
+      </fieldset>
+    </div>
   );
 }

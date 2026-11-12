@@ -93,3 +93,59 @@
 .intro {
   max-width: 720px;
 }
+
+/* An example page's Regenerate controls, shown switched off with a bubble saying why. */
+.redoPreview {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--r-md);
+  cursor: not-allowed;
+}
+
+.redoControls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.redoBubble {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  z-index: 2;
+  padding: 6px 12px;
+  border-radius: var(--r-md);
+  background: var(--ink);
+  color: var(--on-ink);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  box-shadow: var(--shadow-float);
+  opacity: 0;
+  transform: translate(-50%, 4px);
+  transition: opacity 0.15s, transform 0.15s;
+  pointer-events: none;
+}
+
+.redoBubble::after {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  border: 6px solid transparent;
+  border-top-color: var(--ink);
+  transform: translateX(-50%);
+  content: '';
+}
+
+.redoPreview:hover .redoBubble,
+.redoPreview:focus-visible .redoBubble,
+.redoPreview:focus .redoBubble {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
