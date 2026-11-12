@@ -3,10 +3,10 @@ import type { NextConfig } from 'next';
 const nextConfig: NextConfig = {
   // sharp is a native module; keep it out of the bundle.
   serverExternalPackages: ['sharp'],
-  // Books are read from data/books/ at runtime; on Vercel they must ship with the functions.
+  // Books and examples are read from data/ at runtime; on Vercel they must ship with the functions.
   outputFileTracingIncludes: {
-    '/': ['./data/books/**/*'],
-    '/**/*': ['./data/books/**/*'],
+    '/': ['./data/books/**/*', './data/examples/**/*'],
+    '/**/*': ['./data/books/**/*', './data/examples/**/*'],
   },
   outputFileTracingExcludes: {
     '/**/*': ['./data/runs/**/*', './data/children/**/*', './data/uploads/**/*'],

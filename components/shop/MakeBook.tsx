@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { ago, cx } from '@/lib/client';
 import { useLocalBooks, usePeople, useRunSummaries } from '@/lib/local/hooks';
 import { createRun } from '@/lib/local/runner';
-import { bookFile, bookReady, canDrawTogether, fileUrl, genderLabel, PREVIEW_PAGES, testPages, type Book, type BookCharacter, type Gender } from '@/lib/types';
+import { bookFile, bookReady, canDrawTogether, fileUrl, genderLabel, PREVIEW_PAGES, testPages, type Book, type BookCharacter, type ExampleCard, type Gender } from '@/lib/types';
 
 import { CheckIcon, PlusIcon } from '../icons';
 import { BookCard } from '../library/BookCard';
@@ -21,9 +21,9 @@ import styles from './MakeBook.module.css';
 /**
  * What a customer sees: choose a book → a photo for each character → a free preview.
  * `books`: the published ones that are fully prepared; this browser's own ready books join them,
- * as do its people and runs.
+ * as do its people and runs. `examples`: finished books published with the site, to look at first.
  */
-export function MakeBook({ books: published }: { books: Book[] }) {
+export function MakeBook({ books: published, examples }: { books: Book[]; examples: ExampleCard[] }) {
   const router = useRouter();
   const local = useLocalBooks(true);
   const books = [...published, ...(local ?? []).filter(bookReady)];
@@ -84,6 +84,29 @@ export function MakeBook({ books: published }: { books: Book[] }) {
           <h1 className={styles.title}>Put your child into a picture book</h1>
           <p className={ui.muted}>Choose a book, add a photo for each character, and see a free preview of your own book in a few minutes.</p>
         </header>
+
+        {examples.length > 0 && (
+          <section className={styles.step}>
+            <h2 className={ui.panelTitle}>See a finished book first</h2>
+            <ul className={lib.grid}>
+              {examples.map((e) => (
+                <li key={e.id} className={lib.card}>
+                  <Link href={`/example/${e.id}`} className={lib.cardLink}>
+                    <span className={lib.cover} style={{ aspectRatio: e.ratio }}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={fileUrl(e.cover)} alt="" />
+                      <span className={lib.picked}>Example</span>
+                    </span>
+                    <span className={lib.cardTitle}>{e.title}</span>
+                    <span className={lib.cardMeta}>
+                      {e.pages} pages · with {e.people.join(', ').replace(/, ([^,]*)$/, ' & $1')}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         <section className={styles.step}>
           <StepHead n={1} title="Choose a book" done={!!book} />

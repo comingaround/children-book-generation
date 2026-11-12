@@ -7,7 +7,7 @@ import { dirname, resolve, sep } from 'node:path';
 
 import { HttpError } from './http-error';
 import { migrateBook, migratePerson, migrateRun } from './migrate';
-import type { Book, Person, Run } from './types';
+import type { Book, Example, Person, Run } from './types';
 
 /** Books live in data/books/ (plain files, no database); data/children/ and data/runs/ only hold older saves. */
 export const DATA = resolve(process.cwd(), 'data');
@@ -64,6 +64,23 @@ export async function listBooks(): Promise<Book[]> {
 }
 
 export const deleteBook = (id: string) => rm(dataPath('books', id), { recursive: true, force: true });
+
+// ---- examples (finished runs published with the site) ---------------------------------------
+
+export const getExample = (id: string) => readJson<Example>(dataPath('examples', id, 'example.json'));
+
+export async function listExamples(): Promise<Example[]> {
+  const examples = await Promise.all((await listDirs('examples')).map(getExample));
+  return examples.filter((e): e is Example => !!e).sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
+}
+
+export const saveExample = (example: Example) => writeJson(dataPath('examples', example.id, 'example.json'), example);
+
+export async function writeDataFile(relative: string, data: Buffer): Promise<void> {
+  const full = dataPath(relative);
+  await mkdir(dirname(full), { recursive: true });
+  await writeFile(full, data);
+}
 
 // ---- people and runs on disk ---------------------------------------------------------------
 // People and runs now live in the browser (lib/local/). These read what earlier versions saved

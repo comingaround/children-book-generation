@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 import { cx, money, seconds } from '@/lib/client';
+import { publishExample } from '@/lib/local/examples';
 import { downloadPdf } from '@/lib/local/pdf';
 import { approveCast, regenerateCharacter, regeneratePage, retryText, selectCharacter, selectPageAttempt, setTogether } from '@/lib/local/runner';
 import { deleteRun } from '@/lib/local/store';
@@ -49,7 +50,8 @@ export function RunView({ id, price, serverPdf }: { id: string; price: number; s
 function RunBody({ run, book, people, price, serverPdf }: { run: Run; book: Book; people: Person[]; price: number; serverPdf: boolean }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState<'pdf' | 'print' | null>(null);
+  const [saving, setSaving] = useState<'pdf' | 'print' | 'example' | null>(null);
+  const [published, setPublished] = useState(false);
   const [reading, setReading] = useState(false);
   /** Correction typed under each page, by page index; sent with its next Regenerate. */
   const [fixes, setFixes] = useState<Record<number, string>>({});
@@ -75,6 +77,17 @@ function RunBody({ run, book, people, price, serverPdf }: { run: Run; book: Book
     if (!window.confirm('Delete this run and its generated images?')) return;
     await act(() => deleteRun(run.id));
     router.push('/studio');
+  }
+
+  /** The owner, locally: keeps this finished run with the site as an example (next deploy). */
+  async function publish() {
+    if (!window.confirm('Publish this run as an example? Its pages, the photos of everyone in it and its PDF go online with the next deploy.')) return;
+    setSaving('example');
+    await act(async () => {
+      await publishExample(book, run, people);
+      setPublished(true);
+    });
+    setSaving(null);
   }
 
   async function savePdf(print: boolean) {
@@ -127,6 +140,12 @@ function RunBody({ run, book, people, price, serverPdf }: { run: Run; book: Book
             {saving === 'print' && <span className={ui.spinner} />}
             Print PDF
           </button>
+          {serverPdf && !book.local && run.status === 'done' && done === pages.length && (
+            <button className={cx(ui.btn, ui.ghost, ui.small)} onClick={publish} disabled={!!saving || published} title="Keep this finished book with the site, for visitors to see">
+              {saving === 'example' && <span className={ui.spinner} />}
+              {published ? 'Published as example' : 'Publish as example'}
+            </button>
+          )}
           <button className={cx(ui.btn, ui.secondary)} onClick={() => setReading(true)} disabled={done === 0}>
             <BookIcon />
             Book view

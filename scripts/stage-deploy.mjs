@@ -1,13 +1,13 @@
 // Builds the folder that is uploaded to Vercel: the code (as in git) plus the books chosen for
 // the public demo. data/ never goes into git, so the books only reach the site this way.
 //
-//   node scripts/stage-deploy.mjs <out-dir> <book-id> [<book-id> ...]
+//   node scripts/stage-deploy.mjs <out-dir> <book-id> [<book-id> ...]   (every example in data/examples/ goes too)
 //
 // Each book's pages are re-saved as JPEG (Vercel answers at most 4.5 MB per response, and some
 // imported pages are larger PNGs). The source PDF goes too: the browser builds the PDF from it.
 
 import { execFileSync } from 'node:child_process';
-import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import sharp from 'sharp';
@@ -39,4 +39,17 @@ for (const id of books) {
   }
   writeFileSync(join(to, 'book.json'), JSON.stringify(book, null, 2));
   console.log(`${id}: ${book.pages.length} pages`);
+}
+
+// Examples (finished runs published with the site), every one there is. The PDF also goes to
+// public/ as a static file: functions answer at most 4.5 MB, and a whole book is more.
+if (existsSync(join('data', 'examples'))) {
+  for (const id of readdirSync(join('data', 'examples'))) {
+    const from = join('data', 'examples', id);
+    cpSync(from, join(out, 'data', 'examples', id), { recursive: true });
+    const example = JSON.parse(readFileSync(join(from, 'example.json'), 'utf8'));
+    mkdirSync(dirname(join(out, 'public', example.pdf)), { recursive: true });
+    cpSync(join('data', example.pdf), join(out, 'public', example.pdf));
+    console.log(`example ${id}`);
+  }
 }

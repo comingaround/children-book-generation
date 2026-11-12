@@ -214,6 +214,34 @@ export interface RunSummary {
   cover: string | null;
 }
 
+/**
+ * A finished run published with the site (data/examples/<id>/example.json), for visitors to see
+ * what the engine makes before they try it. Its files are paths under data/ like books' files.
+ */
+export interface Example {
+  id: string;
+  bookId: string;
+  publishedAt: string;
+  /** The run with only the version each step shows, its files moved into the example's folder. */
+  run: Run;
+  /** Who plays whom: their photo and their drawing in the book's style. */
+  cast: (PersonFacts & { characterId: string; photo: string; drawing: string })[];
+  /** The finished book as a PDF, made when it was published. */
+  pdf: string;
+}
+
+/** An example as the home page shows it. */
+export interface ExampleCard {
+  id: string;
+  title: string;
+  people: string[];
+  pages: number;
+  /** The generated cover (or first page). */
+  cover: string;
+  /** The book's page shape, as a CSS aspect ratio. */
+  ratio: string;
+}
+
 /** What the prompts say about a person; all the AI endpoints get, besides the photo. */
 export type PersonFacts = Pick<Person, 'name' | 'gender' | 'age' | 'notes'>;
 

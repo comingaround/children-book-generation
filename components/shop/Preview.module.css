@@ -88,3 +88,8 @@
 .mode {
   align-self: flex-start;
 }
+
+/* The example page's opening paragraph. */
+.intro {
+  max-width: 720px;
+}
