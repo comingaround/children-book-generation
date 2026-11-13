@@ -242,6 +242,38 @@ export interface ExampleCard {
   ratio: string;
 }
 
+/** One of our sample people (lib/local/samples.ts). */
+export interface SamplePerson extends PersonFacts {
+  id: string;
+  /** Paths under data/ on the server. */
+  photo: string;
+  drawings: Record<string, string>;
+}
+
+/** The examples' casts, one person per name (server side, for the page to pass on). */
+export function samplePeople(examples: Example[]): SamplePerson[] {
+  const byName = new Map<string, SamplePerson>();
+  for (const e of examples) {
+    for (const p of e.cast) {
+      const known = byName.get(p.name);
+      if (known) {
+        known.drawings[drawingKey(e.bookId, p.characterId)] = p.drawing;
+        continue;
+      }
+      byName.set(p.name, {
+        id: `person-sample-${p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+        name: p.name,
+        gender: p.gender,
+        age: p.age,
+        notes: '',
+        photo: p.photo,
+        drawings: { [drawingKey(e.bookId, p.characterId)]: p.drawing },
+      });
+    }
+  }
+  return [...byName.values()];
+}
+
 /** What the prompts say about a person; all the AI endpoints get, besides the photo. */
 export type PersonFacts = Pick<Person, 'name' | 'gender' | 'age' | 'notes'>;
 

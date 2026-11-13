@@ -184,7 +184,7 @@ export async function headOf(drawing: Buffer): Promise<Buffer> {
 export const toJpeg = (input: Buffer) => jpeg(sharp(input).flatten({ background: '#ffffff' }));
 
 /** Small JPEG for strips and cards. */
-export const thumbnail = (input: Buffer, width = 480) => jpeg(sharp(input).rotate().resize(width, width * 2, { fit: 'inside', withoutEnlargement: true }));
+export const thumbnail = (input: Buffer, width = 720) => jpeg(sharp(input).rotate().resize(width, width * 2, { fit: 'inside', withoutEnlargement: true }));
 
 /** Resampled (Lanczos) so it is at least `width` px wide, for print; already-large art is left as is. */
 export async function upscaleTo(input: Buffer, width: number): Promise<Buffer | null> {

@@ -2,12 +2,13 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
-import { ago, cx } from '@/lib/client';
+import { ago, cx, HOSTED_DEMO, UPLOAD_PICTURES } from '@/lib/client';
 import { useLocalBooks, usePeople, useRunSummaries } from '@/lib/local/hooks';
 import { createRun } from '@/lib/local/runner';
-import { bookFile, bookReady, canDrawTogether, fileUrl, genderLabel, PREVIEW_PAGES, testPages, type Book, type BookCharacter, type ExampleCard, type Gender } from '@/lib/types';
+import { addSamplePeople } from '@/lib/local/samples';
+import { bookFile, bookReady, canDrawTogether, fileUrl, genderLabel, PREVIEW_PAGES, testPages, type Book, type BookCharacter, type ExampleCard, type Gender, type SamplePerson } from '@/lib/types';
 
 import { CheckIcon, PlusIcon } from '../icons';
 import { BookCard } from '../library/BookCard';
@@ -22,9 +23,11 @@ import styles from './MakeBook.module.css';
  * What a customer sees: choose a book → a photo for each character → a free preview.
  * `books`: the published ones that are fully prepared; this browser's own ready books join them,
  * as do its people and runs. `examples`: finished books published with the site, to look at first.
+ * `samples`: our sample people, added to this browser's people once.
  */
-export function MakeBook({ books: published, examples }: { books: Book[]; examples: ExampleCard[] }) {
+export function MakeBook({ books: published, examples, samples }: { books: Book[]; examples: ExampleCard[]; samples: SamplePerson[] }) {
   const router = useRouter();
+  useEffect(() => void addSamplePeople(samples), [samples]);
   const local = useLocalBooks(true);
   const books = [...published, ...(local ?? []).filter(bookReady)];
   const [bookId, setBookId] = useState<string | null>(null);
@@ -55,6 +58,8 @@ export function MakeBook({ books: published, examples }: { books: Book[]; exampl
   // The switch only matters if some page of the book has two of them on it.
   const ids = assignments.map((a) => a.characterId);
   const shared = !!book && book.pages.some((p) => canDrawTogether(book, p, ids));
+  // An uploaded book in the public demo: one picture per page, so the preview fits the limit.
+  const limited = HOSTED_DEMO && !!book?.local;
 
   const assign = (characterId: string, personId: string) => book && setCast((all) => ({ ...all, [book.id]: { ...all[book.id], [characterId]: personId } }));
 
@@ -69,7 +74,7 @@ export function MakeBook({ books: published, examples }: { books: Book[]; exampl
     setBusy(true);
     setError(null);
     try {
-      const run = await createRun(book, assignments, previewPages, true, shared && together, true);
+      const run = await createRun(book, assignments, previewPages, true, shared && (together || limited), true);
       router.push(`/preview/${run.id}`);
     } catch (err) {
       setError((err as Error).message);
@@ -188,7 +193,12 @@ export function MakeBook({ books: published, examples }: { books: Book[]; exampl
               We draw {names.join(' and ')} in the book&apos;s style, then the cover{previewPages.length > 2 ? ` and ${previewPages.length - 1} pages` : ' and one page'}. It takes
               about two minutes. You check them before ordering the whole book.
             </p>
-            {shared && (
+            {limited && (
+              <p className={ui.help}>
+                Books you upload can make {UPLOAD_PICTURES} pictures in this demo: the cover and one page, everyone drawn at once.
+              </p>
+            )}
+            {shared && !limited && (
               <div className={ui.field}>
                 <span className={ui.label}>Pages with more than one of them</span>
                 <TogetherSwitch className={styles.mode} together={together} onChange={setTogether} />

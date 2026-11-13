@@ -13,7 +13,7 @@ import { put } from './idb';
  * colour, and the fonts embedded in the PDF, so the page can be rebuilt with new art underneath.
  */
 
-const THUMB_MAX = 420;
+const THUMB_MAX = 720;
 /** Page art is kept as JPEG (it goes to the AI with every call; Vercel takes at most 4.5 MB a request). */
 const ART_MAX = 3000;
 const AD_LINE = /advertisement|published by|www\.|\.com\b/i;

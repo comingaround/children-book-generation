@@ -1,6 +1,6 @@
 import { MakeBook } from '@/components/shop/MakeBook';
 import { listBooks, listExamples } from '@/lib/store';
-import { bookReady, chosenFile, type ExampleCard } from '@/lib/types';
+import { bookReady, chosenFile, samplePeople, type ExampleCard } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,5 +12,5 @@ export default async function Home() {
     const first = e.run.pageIndexes.map((i) => e.run.pages[i]).find((s) => s && chosenFile(s));
     return [{ id: e.id, title: book.title, people: e.cast.map((p) => p.name), pages: e.run.pageIndexes.length, cover: (first && chosenFile(first)) ?? '', ratio: `${book.pageWidth} / ${book.pageHeight}` }];
   });
-  return <MakeBook books={books.filter(bookReady)} examples={cards} />;
+  return <MakeBook books={books.filter(bookReady)} examples={cards} samples={samplePeople(examples)} />;
 }

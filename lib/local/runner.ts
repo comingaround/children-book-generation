@@ -1,4 +1,4 @@
-import { ApiError, api, apiBlob } from '../client';
+import { ApiError, api, apiBlob, HOSTED_DEMO, UPLOAD_PICTURES } from '../client';
 import { textChanges, type TextCast } from '../text';
 import {
   canDrawTogether,
@@ -17,7 +17,16 @@ import {
   type StepStatus,
 } from '../types';
 import { copyFile, localKey, readFile, saveFile } from './files';
-import { addRun, bookSpec, emit, getRun, loadBook, mutate, newId, onChange, requirePerson, requireRun, savePerson } from './store';
+import { addRun, bookSpec, emit, getRun, listRuns, loadBook, mutate, newId, onChange, requirePerson, requireRun, savePerson } from './store';
+
+const UPLOAD_LIMIT = `Books you upload can make ${UPLOAD_PICTURES} pictures in this demo. Books on our shelf can be made whole.`;
+
+/** In the public demo, a book the visitor uploaded makes at most UPLOAD_PICTURES page pictures. */
+async function checkUploadLimit(book: Book): Promise<void> {
+  if (!HOSTED_DEMO || !book.local) return;
+  const made = (await listRuns()).filter((r) => r.bookId === book.id).reduce((n, r) => n + r.images - (r.drawings ?? 0), 0);
+  if (made >= UPLOAD_PICTURES) throw new Error(UPLOAD_LIMIT);
+}
 
 /**
  * Runs are drawn by the page, not the server: this loop sends one image call at a time to the
@@ -344,6 +353,7 @@ async function drawPage(runId: string, index: number): Promise<void> {
     let art: Blob | null = null;
     for (const group of together ? [members] : members.map((m) => [m])) {
       const label = together ? '' : members.length > 1 ? `${group[0].label}: ` : '';
+      await checkUploadLimit(book);
       await say(together ? 'Drawing everyone at once…' : `${label}drawing…`);
       art = await drawOnPage(book, page, art, group, fix, fixFor);
       await mutate(runId, (r) => void r.images++);
@@ -407,6 +417,7 @@ export async function regeneratePage(runId: string, index: number, fix?: string,
 /** The customer orders the full book: every other page with their characters joins the run. */
 export async function orderFullBook(runId: string): Promise<Run> {
   const book = await loadBook((await requireRun(runId)).bookId);
+  if (HOSTED_DEMO && book.local) throw new Error(UPLOAD_LIMIT);
   const run = await mutate(runId, (r) => {
     if (r.ordered) throw new Error('Already ordered');
     const all = testPages(book, 'all', r.cast.map((c) => c.characterId));

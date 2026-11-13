@@ -53,3 +53,9 @@ export function swapName(text: string, from: string, to: string): string {
   if (!from.trim() || !to.trim()) return text;
   return text.replace(nameRegex([from]), (match) => (match === match.toUpperCase() && match !== match.toLowerCase() ? to.toUpperCase() : to));
 }
+
+/** The public demo (see lib/hosted.ts), as the browser knows it. */
+export const HOSTED_DEMO = process.env.NEXT_PUBLIC_HOSTED === '1';
+
+/** Page pictures a visitor can make of a book they uploaded, in the public demo. */
+export const UPLOAD_PICTURES = 2;
