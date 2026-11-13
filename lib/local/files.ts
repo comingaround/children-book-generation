@@ -47,3 +47,23 @@ export async function deleteFiles(prefix: string): Promise<void> {
   await del('files', range);
   for (const key of localKeys()) if (key.startsWith(prefix)) setLocalUrl(key, null);
 }
+
+/** Vercel takes at most 4.5 MB per request, and a page call carries several images. */
+const UPLOAD_MAX_BYTES = 1_200_000;
+const UPLOAD_MAX_SIDE = 2048;
+
+/** The image as it is when small enough to send, else re-saved as a JPEG of at most 2048 px. */
+export async function uploadable(blob: Blob): Promise<Blob> {
+  if (blob.size <= UPLOAD_MAX_BYTES) return blob;
+  const bitmap = await createImageBitmap(blob);
+  const scale = Math.min(1, UPLOAD_MAX_SIDE / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  return new Promise((resolve) => canvas.toBlob((b) => resolve(b ?? blob), 'image/jpeg', 0.9));
+}

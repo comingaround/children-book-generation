@@ -16,7 +16,7 @@ import {
   type RunStep,
   type StepStatus,
 } from '../types';
-import { copyFile, localKey, readFile, saveFile } from './files';
+import { copyFile, localKey, readFile, saveFile, uploadable } from './files';
 import { addRun, bookSpec, emit, getRun, listRuns, loadBook, mutate, newId, onChange, requirePerson, requireRun, savePerson } from './store';
 
 const UPLOAD_LIMIT = `Books you upload can make ${UPLOAD_PICTURES} pictures in this demo. Books on our shelf can be made whole.`;
@@ -231,7 +231,7 @@ async function drawCharacter(runId: string, characterId: string): Promise<void> 
     const form = new FormData();
     const spec = await bookSpec(book, form, [style.image, ...(sample ? [sample.image] : [])]);
     form.set('spec', JSON.stringify({ ...spec, characterId, person: personFacts(person) }));
-    form.set('photo', await readFile(person.photo));
+    form.set('photo', await uploadable(await readFile(person.photo)));
     const file = await saveFile(localKey(`runs/${runId}/cast-${characterId}-${Date.now().toString(36)}.jpg`), await apiBlob('/api/ai/character', { method: 'POST', body: form }));
 
     await mutate(runId, (r) => {
@@ -316,10 +316,10 @@ async function drawOnPage(book: Book, page: Page, art: Blob | null, group: Membe
   const spec = await bookSpec(book, form, art ? [] : [page.image]);
   form.set('spec', JSON.stringify({ ...spec, index: page.index, members: group.map((m) => ({ characterId: m.characterId, person: personFacts(m.person) })), fix, fixFor }));
   for (const [n, m] of group.entries()) {
-    form.set(`photo-${n}`, await readFile(m.person.photo!));
-    form.set(`drawing-${n}`, await readFile(m.drawing));
+    form.set(`photo-${n}`, await uploadable(await readFile(m.person.photo!)));
+    form.set(`drawing-${n}`, await uploadable(await readFile(m.drawing)));
   }
-  if (art) form.set('art', art);
+  if (art) form.set('art', await uploadable(art));
   return apiBlob('/api/ai/page', { method: 'POST', body: form });
 }
 

@@ -1,7 +1,7 @@
 import { api } from '../client';
 import { migratePerson, migrateRun } from '../migrate';
 import { bookFile, chosenFile, type Book, type Person, type Run, type RunSummary } from '../types';
-import { deleteFile, deleteFiles, localKey, readFile } from './files';
+import { deleteFile, deleteFiles, localKey, readFile, uploadable } from './files';
 import { del, get, getAll, put, request, tx } from './idb';
 
 /**
@@ -76,7 +76,7 @@ export async function deleteBook(book: Book): Promise<void> {
  */
 export async function bookSpec(book: Book, form?: FormData, images: string[] = []): Promise<{ bookId: string } | { book: Book }> {
   if (!book.local) return { bookId: book.id };
-  for (const image of new Set(images)) form?.set(`book:${image}`, await readFile(bookFile(book, image)));
+  for (const image of new Set(images)) form?.set(`book:${image}`, await uploadable(await readFile(bookFile(book, image))));
   return { book };
 }
 
