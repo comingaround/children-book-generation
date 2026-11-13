@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { cx } from '@/lib/client';
 import { createPerson, updatePerson } from '@/lib/local/people';
 import { deletePerson, deletePhoto } from '@/lib/local/store';
-import { fileUrl, genderLabel, GENDERS, type Gender, type Person } from '@/lib/types';
+import { fileUrl, genderLabel, GENDERS, isSample, SAMPLE_NOTE, type Gender, type Person } from '@/lib/types';
 
 import { PlusIcon } from '../icons';
 import ui from '../ui.module.css';
@@ -219,6 +219,7 @@ export function People({ people: loaded, request, onAdded }: Props) {
                   {person.age !== null && `, ${person.age}`}
                 </span>
                 {person.notes && <span className={styles.notes}>{person.notes}</span>}
+                {isSample(person) && <span className={cx(ui.chip, ui.sage, styles.sample)}>{SAMPLE_NOTE}</span>}
                 {error && <span className={styles.error}>{error}</span>}
                 <div className={styles.profileActions}>
                   <button
@@ -243,6 +244,16 @@ export function People({ people: loaded, request, onAdded }: Props) {
               </div>
             </div>
           )
+        )}
+        {people.some(isSample) && (
+          <span className={ui.help}>
+            {people
+              .filter(isSample)
+              .map((p) => p.name)
+              .join(', ')
+              .replace(/, ([^,]*)$/, ' and $1')}{' '}
+            are AI-generated sample people, not real children. Their photos were made with AI.
+          </span>
         )}
         <span className={ui.help}>Photos stay in this browser and are sent to Google only while generating.</span>
       </div>

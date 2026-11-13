@@ -171,3 +171,15 @@
   margin-top: 2px;
   accent-color: var(--ink);
 }
+
+/* "AI-generated sample person": a chip that can wrap in the narrow profile column. */
+.sample {
+  align-self: flex-start;
+  height: auto;
+  padding-block: 4px;
+  white-space: normal;
+  line-height: 1.35;
+  border-radius: var(--r-sm, 10px);
+  font-weight: 500;
+  text-transform: none;
+}

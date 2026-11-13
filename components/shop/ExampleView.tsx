@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 
 import { cx } from '@/lib/client';
-import { chosenFile, fileUrl, presentOn, type Book, type BookCharacter, type Example } from '@/lib/types';
+import { chosenFile, DISPLAY_ONLY, fileUrl, presentOn, type Book, type BookCharacter, type Example } from '@/lib/types';
 
 import { BookFonts, BookPage } from '../BookPage';
 import { BackIcon, BookIcon, RedoIcon } from '../icons';
@@ -44,10 +44,12 @@ export function ExampleView({ example, book, pdfUrl }: { example: Example; book:
           style, then every page is redrawn with them: faces, hair and skin change; clothing, poses and the rest of the art stay as the
           illustrator made them. Drag across a page to compare it with the original.
         </p>
+        <p className={ui.help}>{DISPLAY_ONLY}</p>
       </header>
 
       <section className={cx(ui.panel, styles.check)}>
         <h2 className={ui.panelTitle}>From photo to character</h2>
+        <p className={ui.help}>{who} are AI-generated sample people, not real children. Their photos were made with AI.</p>
         <ul className={run$.castCards}>
           {cast.map((person) => (
             <li key={person.characterId} className={run$.castCard}>

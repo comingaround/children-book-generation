@@ -274,6 +274,13 @@ export function samplePeople(examples: Example[]): SamplePerson[] {
   return [...byName.values()];
 }
 
+/** One of our sample people, added by lib/local/samples.ts (ids made by samplePeople()). */
+export const isSample = (person: Pick<Person, 'id'>) => person.id.startsWith('person-sample-');
+
+/** Shown wherever the sample people or the example are: they're made up, the books aren't for sale. */
+export const SAMPLE_NOTE = 'AI-generated sample person, not a real child.';
+export const DISPLAY_ONLY = 'Books shown here are for display purposes only and may not be used for any commercial purpose.';
+
 /** What the prompts say about a person; all the AI endpoints get, besides the photo. */
 export type PersonFacts = Pick<Person, 'name' | 'gender' | 'age' | 'notes'>;
 

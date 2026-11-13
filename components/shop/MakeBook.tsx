@@ -8,7 +8,7 @@ import { ago, cx, HOSTED_DEMO, UPLOAD_PICTURES } from '@/lib/client';
 import { useLocalBooks, usePeople, useRunSummaries } from '@/lib/local/hooks';
 import { createRun } from '@/lib/local/runner';
 import { addSamplePeople } from '@/lib/local/samples';
-import { bookFile, bookReady, canDrawTogether, fileUrl, genderLabel, PREVIEW_PAGES, testPages, type Book, type BookCharacter, type ExampleCard, type Gender, type SamplePerson } from '@/lib/types';
+import { bookFile, bookReady, canDrawTogether, fileUrl, genderLabel, PREVIEW_PAGES, testPages, type Book, type BookCharacter, type ExampleCard, type Gender, type SamplePerson, DISPLAY_ONLY } from '@/lib/types';
 
 import { CheckIcon, PlusIcon } from '../icons';
 import { BookCard } from '../library/BookCard';
@@ -115,6 +115,7 @@ export function MakeBook({ books: published, examples, samples }: { books: Book[
 
         <section className={styles.step}>
           <StepHead n={1} title="Choose a book" done={!!book} />
+          <p className={ui.help}>{DISPLAY_ONLY}</p>
           {books.length === 0 ? (
             <p className={ui.muted}>
               No books are ready yet. They are added and prepared under <Link href="/studio">Edit books</Link>.
