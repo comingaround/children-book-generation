@@ -49,7 +49,7 @@ export function ExampleView({ example, book, pdfUrl }: { example: Example; book:
 
       <section className={cx(ui.panel, styles.check)}>
         <h2 className={ui.panelTitle}>From photo to character</h2>
-        <p className={ui.help}>{who} are AI-generated sample people, not real children. Their photos were made with AI.</p>
+        <p className={ui.help}>{who} are AI-generated sample people, not real people. Their photos were made with AI.</p>
         <ul className={run$.castCards}>
           {cast.map((person) => (
             <li key={person.characterId} className={run$.castCard}>

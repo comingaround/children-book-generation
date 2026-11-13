@@ -252,7 +252,7 @@ export function People({ people: loaded, request, onAdded }: Props) {
               .map((p) => p.name)
               .join(', ')
               .replace(/, ([^,]*)$/, ' and $1')}{' '}
-            are AI-generated sample people, not real children. Their photos were made with AI.
+            are AI-generated sample people, not real people. Their photos were made with AI.
           </span>
         )}
         <span className={ui.help}>Photos stay in this browser and are sent to Google only while generating.</span>
