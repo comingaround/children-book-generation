@@ -71,7 +71,10 @@ const correction = (fix: string | null) => (fix ? `A correction for this version
 const closingLines = (book: Book, page: Page, fix: string | null) => [
   styleLine(book),
   'Everything else must stay identical to image 1: every other character, the background, objects, composition, framing and colours. If a changed character appears more than once, change every appearance.',
-  page.kind === 'cover' ? 'Keep any title lettering exactly as it is, letter for letter.' : 'Do not add any text, letters or signatures.',
+  // Some books print their text into the art: a model once rewrote "Noah and Lina" there with a person's name.
+  page.kind === 'cover'
+    ? 'Keep any title lettering exactly as it is, letter for letter.'
+    : 'Keep any text already in image 1 (speech bubbles, captions, signs) exactly as it is, letter for letter: never change a name in it. Do not add any new text, letters or signatures.',
   page.scenePrompt.trim() ? `About this scene: ${page.scenePrompt.trim()}` : '',
   correction(fix),
   'Return the whole image at the same framing as image 1.',
