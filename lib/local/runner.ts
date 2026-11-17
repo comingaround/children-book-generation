@@ -4,6 +4,7 @@ import {
   canDrawTogether,
   characterArt,
   chosenFile,
+  chosenIndex,
   drawingKey,
   FIX_MAX,
   personFacts,
@@ -412,6 +413,51 @@ export async function regeneratePage(runId: string, index: number, fix?: string,
   });
   await kick(runId);
   return run;
+}
+
+/**
+ * The owner's "Edit this version": the version a page shows goes back to the AI with the book's
+ * own art beside it, and only what `fix` asks changes (by default the clothing, back to the
+ * original's colours). Its answer is a new version; the old one stays. Not queued: one call, now.
+ */
+export async function touchUpPage(runId: string, index: number, fix?: string): Promise<void> {
+  const started = Date.now();
+  const run = await requireRun(runId);
+  const step = run.pages[index];
+  const current = step && chosenFile(step);
+  if (!current) throw new Error('This page has no version to edit yet');
+  if (step.status === 'working' || step.status === 'queued') throw new Error('That page is already being made');
+  const from = chosenIndex(step) + 1;
+  const note = fix?.trim().slice(0, FIX_MAX) || null;
+  await mutate(runId, (r) => {
+    r.pages[index].status = 'working';
+    r.pages[index].message = `Editing version ${from}…`;
+  });
+  try {
+    const book = await loadBook(run.bookId);
+    const page = book.pages.find((p) => p.index === index);
+    if (!page) throw new Error(`Page ${index} is no longer in the book`);
+    const form = new FormData();
+    const spec = await bookSpec(book, form, [page.image]);
+    form.set('spec', JSON.stringify({ ...spec, index, characterIds: run.cast.map((c) => c.characterId), fix: note }));
+    form.set('current', await uploadable(await readFile(current)));
+    const art = await apiBlob('/api/ai/touchup', { method: 'POST', body: form });
+    const file = await saveFile(localKey(`runs/${runId}/pages/${String(index).padStart(2, '0')}-${Date.now().toString(36)}.jpg`), art);
+    await mutate(runId, (r) => {
+      const s = r.pages[index];
+      s.attempts.push({ file, at: new Date().toISOString(), ms: Date.now() - started, fix: `Edited version ${from}: ${note ?? 'clothing matched to the original'}` });
+      s.selected = s.attempts.length - 1;
+      s.status = 'done';
+      s.message = null;
+      r.images++;
+    });
+  } catch (err) {
+    await mutate(runId, (r) => {
+      r.pages[index].status = 'done';
+      r.pages[index].message = null;
+    });
+    throw err;
+  }
 }
 
 /** The customer orders the full book: every other page with their characters joins the run. */

@@ -3,7 +3,7 @@ import 'server-only';
 import sharp from 'sharp';
 
 import { generateImage, generateJson, type InlineImage } from './ai/gemini';
-import { characterPrompt, pagePrompt, textRewritePrompt, textRewriteSchema, type PromptMember, type TextRewrite } from './ai/prompts';
+import { characterPrompt, pagePrompt, textRewritePrompt, textRewriteSchema, touchUpPrompt, type PromptMember, type TextRewrite } from './ai/prompts';
 import { HttpError } from './http-error';
 import {
   blendInBox,
@@ -113,6 +113,34 @@ export async function drawPageStep({ book, read }: BookInput, index: number, art
   const before = await sharp(original).extract(region).png().toBuffer();
   const after = await blendInBox(before, edited, keep, region.width, region.height);
   return toJpeg(closeUp ? await pasteRegion(original, after, region) : after);
+}
+
+/**
+ * "Edit this version": changes a finished version of a page (by default only the clothing, back
+ * to the original's colours and finish) instead of drawing it again from the book's art. Same
+ * close-up and keep-outside-the-boxes rules as drawPageStep, so the rest stays pixel-identical.
+ */
+export async function touchUpPageStep({ book, read }: BookInput, index: number, current: Buffer, characterIds: string[], fix: string | null): Promise<Buffer> {
+  const page = pageOf(book, index);
+  const characters = characterIds.map((id) => characterOf(book, id)).filter((c) => castOn(page, c.id).present);
+  if (!characters.length) throw new HttpError(400, 'No one to change on this page');
+  const { imageWidth: w, imageHeight: h } = page;
+  const pageBoxes = characters.map((c) => castOn(page, c.id).box).filter((b): b is Box => !!b);
+  const closeUp = pageBoxes.length === characters.length && book.settings.closeUp !== false;
+  const region: Region = closeUp ? closeUpRegion(unionBox(pageBoxes), w, h) : { left: 0, top: 0, width: w, height: h };
+  const boxes = closeUp ? pageBoxes.map((b) => boxInRegion(b, region, w, h)) : pageBoxes;
+
+  const original = await read(page.image);
+  const base = await padToRatio(closeUp ? await cutRegion(current, region) : current);
+  const reference = await padToRatio(closeUp ? await cutRegion(original, region) : original);
+  const answer = await generateImage([base.image, reference.image], touchUpPrompt(book, page, characters, fix), { aspectRatio: base.ratio });
+  const edited = await unpad(answer, base.crop, region.width, region.height);
+
+  const keep = book.settings.keepOutsideBox && boxes.length ? boxes : closeUp ? [EDGE_FEATHER] : [];
+  if (!keep.length) return toJpeg(edited);
+  const before = await sharp(current).extract(region).png().toBuffer();
+  const after = await blendInBox(before, edited, keep, region.width, region.height);
+  return toJpeg(closeUp ? await pasteRegion(current, after, region) : after);
 }
 
 // ---- he/she in the text ------------------------------------------------------------------

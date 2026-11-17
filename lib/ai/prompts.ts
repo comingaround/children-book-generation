@@ -283,3 +283,22 @@ Keep every other word, the punctuation, the capitalisation and the line breaks e
 
 ${JSON.stringify(pages)}`;
 }
+
+/**
+ * "Edit this version": image 1 is a version already made (faces done, poses right), image 2 the
+ * book's own art of the same part of the page. Only what the owner asks changes — by default the
+ * clothing, back to the colours, fabric and finish of the original.
+ */
+export function touchUpPrompt(book: Book, page: Page, characters: BookCharacter[], fix: string | null): string {
+  const outfits = characters.map((c) => `- ${c.label}: ${clothingOn(c, page) || 'as in image 2'}`).join('\n');
+  return [
+    `Image 1 is a finished illustration from the picture book "${book.title}". Image 2 is the same part of the page exactly as the book's illustrator drew it.`,
+    fix
+      ? `Edit image 1 only as follows: ${fix}`
+      : 'Edit image 1: repaint only the clothing so its colours, fabric, pattern and finish match image 2 exactly: the same hue, lightness and softness, painted with the same flat, matte brushwork, no extra gloss, sheen or highlights.',
+    `What each character wears here:\n${outfits}`,
+    'Change nothing else in image 1: keep every face, hairstyle, skin tone, glasses, expression, pose, hand, the background, objects, light and colours exactly as they are, pixel for pixel where possible. Do not copy any face or hair from image 2.',
+    'Keep any text in image 1 exactly as it is, letter for letter. Do not add any text.',
+    'Return the whole image at the same framing as image 1.',
+  ].join('\n');
+}

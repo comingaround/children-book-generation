@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react';
 import { cx, money, seconds } from '@/lib/client';
 import { publishExample } from '@/lib/local/examples';
 import { downloadPdf } from '@/lib/local/pdf';
-import { approveCast, regenerateCharacter, regeneratePage, retryText, selectCharacter, selectPageAttempt, setTogether } from '@/lib/local/runner';
+import { approveCast, regenerateCharacter, regeneratePage, retryText, selectCharacter, selectPageAttempt, setTogether, touchUpPage } from '@/lib/local/runner';
 import { deleteRun } from '@/lib/local/store';
 import { canDrawTogether, chosenFile, chosenIndex, FIX_MAX, fileUrl, presentOn, type Book, type CastStep, type Person, type Run, type RunStep } from '@/lib/types';
 
@@ -397,8 +397,24 @@ function RunBody({ run, book, people, price, serverPdf }: { run: Run; book: Book
                       ))}
                     </div>
                   )}
+                  {serverPdf && file && (
+                    <button
+                      className={cx(ui.btn, ui.ghost, ui.small, styles.redo)}
+                      onClick={() =>
+                        act(async () => {
+                          const fix = fixes[page.index] ?? '';
+                          setFixes((f) => ({ ...f, [page.index]: '' }));
+                          await touchUpPage(run.id, page.index, fix);
+                        })
+                      }
+                      disabled={busy}
+                      title="Keep this version (faces, poses, everything) and change only what the fix says; with no fix, the clothing goes back to the original's colours and finish."
+                    >
+                      Edit this version
+                    </button>
+                  )}
                   <button
-                    className={cx(ui.btn, ui.secondary, ui.small, styles.redo)}
+                    className={cx(ui.btn, ui.secondary, ui.small, !(serverPdf && file) && styles.redo)}
                     onClick={() => regenerate(page.index)}
                     disabled={!approved || busy}
                   >
