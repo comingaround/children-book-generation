@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { cx, money, seconds } from '@/lib/client';
 import { publishExample } from '@/lib/local/examples';
@@ -49,6 +49,10 @@ export function RunView({ id, price, serverPdf }: { id: string; price: number; s
 
 function RunBody({ run, book, people, price, serverPdf }: { run: Run; book: Book; people: Person[]; price: number; serverPdf: boolean }) {
   const router = useRouter();
+  // Opened at #page-11 (from the example page's Regenerate): the page cards exist only now, so jump there once.
+  useEffect(() => {
+    document.getElementById(location.hash.slice(1))?.scrollIntoView({ block: 'center' });
+  }, []);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState<'pdf' | 'print' | 'example' | null>(null);
   const [published, setPublished] = useState(false);
@@ -300,7 +304,7 @@ function RunBody({ run, book, people, price, serverPdf }: { run: Run; book: Book
             // "All at once" quietly becomes one by one when someone on the page has no box.
             const fallsBack = !!run.together && onPage.length > 1 && !canDrawTogether(book, page, castIds);
             return (
-              <li key={page.index} className={cx(styles.pageCard, book.pageWidth > book.pageHeight && styles.pageCardWide)}>
+              <li key={page.index} id={`page-${page.index}`} className={cx(styles.pageCard, book.pageWidth > book.pageHeight && styles.pageCardWide)}>
                 <div className={styles.pageHead}>
                   <strong>{label}</strong>
                   <StepChip step={step} />

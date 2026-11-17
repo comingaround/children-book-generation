@@ -12,5 +12,5 @@ export default async function ExamplePage({ params }: { params: Promise<{ id: st
   const book = example && (await getBook(example.bookId));
   if (!example || !book) notFound();
   // Online the PDF is a static file (scripts/stage-deploy.mjs): functions answer at most 4.5 MB.
-  return <ExampleView example={example} book={book} pdfUrl={HOSTED ? `/${example.pdf}` : fileUrl(example.pdf)} />;
+  return <ExampleView example={example} book={book} pdfUrl={HOSTED ? `/${example.pdf}` : fileUrl(example.pdf)} editable={!HOSTED} />;
 }

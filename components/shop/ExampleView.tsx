@@ -1,10 +1,13 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 import { cx } from '@/lib/client';
-import { chosenFile, DISPLAY_ONLY, fileUrl, presentOn, type Book, type BookCharacter, type Example } from '@/lib/types';
+import { regeneratePage } from '@/lib/local/runner';
+import { getRun } from '@/lib/local/store';
+import { chosenFile, DISPLAY_ONLY, FIX_MAX, fileUrl, presentOn, type Book, type BookCharacter, type Example } from '@/lib/types';
 
 import { BookFonts, BookPage } from '../BookPage';
 import { BackIcon, BookIcon, RedoIcon } from '../icons';
@@ -14,8 +17,11 @@ import run$ from '../run/RunView.module.css';
 import ui from '../ui.module.css';
 import styles from './Preview.module.css';
 
-/** A finished book published with the site: who plays whom, every page before and after, the PDF. */
-export function ExampleView({ example, book, pdfUrl }: { example: Example; book: Book; pdfUrl: string }) {
+/**
+ * A finished book published with the site: who plays whom, every page before and after, the PDF.
+ * `editable` (the local version only): each page's Regenerate works, on the example's run in this browser.
+ */
+export function ExampleView({ example, book, pdfUrl, editable = false }: { example: Example; book: Book; pdfUrl: string; editable?: boolean }) {
   const [reading, setReading] = useState(false);
   const { run, cast } = example;
   const characterOf = (id: string) => book.characters.find((c) => c.id === id);
@@ -103,7 +109,11 @@ export function ExampleView({ example, book, pdfUrl }: { example: Example; book:
                 ) : (
                   <BookPage book={book} page={page} />
                 )}
-                <RedoPreview label={label} onPage={presentOn(book, page).filter((c) => castIds.includes(c.id))} />
+                {editable ? (
+                  <RedoLive runId={run.id} index={page.index} label={label} onPage={presentOn(book, page).filter((c) => castIds.includes(c.id))} />
+                ) : (
+                  <RedoPreview label={label} onPage={presentOn(book, page).filter((c) => castIds.includes(c.id))} />
+                )}
               </li>
             );
           })}
@@ -161,5 +171,79 @@ function RedoPreview({ label, onPage }: { label: string; onPage: BookCharacter[]
         </div>
       </fieldset>
     </div>
+  );
+}
+
+/**
+ * The local version's working Regenerate: queues a new version of the page on the example's run
+ * (kept in this browser), then opens that page on the run page to watch it and pick a version.
+ * "Publish as example" there puts the chosen version back here.
+ */
+function RedoLive({ runId, index, label, onPage }: { runId: string; index: number; label: string; onPage: BookCharacter[] }) {
+  const router = useRouter();
+  const [fix, setFix] = useState('');
+  const [fixFor, setFixFor] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function regenerate() {
+    setBusy(true);
+    setError(null);
+    try {
+      if (!(await getRun(runId))) throw new Error('This example’s run is not in this browser: open it in the browser it was made in');
+      await regeneratePage(runId, index, fix, fixFor || null);
+      router.push(`/runs/${runId}#page-${index}`);
+    } catch (err) {
+      setError((err as Error).message);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      {onPage.length > 1 && (
+        <div className={ui.segmented} role="group" aria-label={`Who the fix for ${label} is for`}>
+          <button className={ui.segment} aria-pressed={!fixFor} onClick={() => setFixFor('')}>
+            Everyone
+          </button>
+          {onPage.map((c) => (
+            <button key={c.id} className={ui.segment} aria-pressed={fixFor === c.id} onClick={() => setFixFor(c.id)}>
+              {c.label}
+            </button>
+          ))}
+        </div>
+      )}
+      <label className={run$.fix}>
+        <span className={ui.srOnly}>Optional correction for {label}</span>
+        <input
+          className={cx(ui.input, run$.fixInput)}
+          value={fix}
+          maxLength={FIX_MAX}
+          onChange={(e) => setFix(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !busy) void regenerate();
+          }}
+          placeholder="Optional fix, e.g. facing away from us"
+          disabled={busy}
+        />
+        {fix.length > 0 && (
+          <span className={run$.fixCount}>
+            {fix.length}/{FIX_MAX}
+          </span>
+        )}
+      </label>
+      {error && (
+        <p className={cx(ui.notice, ui.noticeError)}>
+          <span className={ui.dot} />
+          {error}
+        </p>
+      )}
+      <div className={run$.pageFoot}>
+        <button className={cx(ui.btn, ui.secondary, ui.small, run$.redo)} onClick={regenerate} disabled={busy}>
+          {busy ? <span className={ui.spinner} /> : <RedoIcon />}
+          Regenerate
+        </button>
+      </div>
+    </>
   );
 }
