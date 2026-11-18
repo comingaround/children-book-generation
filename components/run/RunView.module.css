@@ -194,10 +194,14 @@
   font-size: var(--text-sm);
 }
 
+/* Pages in fixed columns: 3 across (2 for landscape books), 2 on tablets, 1 on phones. A card
+   never grows past its column, so a page with more people on it can't push a row to 3 or 4. */
 .pages {
+  --cols: 3;
+  --gap: var(--space-5);
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-5);
+  gap: var(--gap);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -205,19 +209,31 @@
 
 .pageCard {
   display: flex;
-  flex: 1 1 min(340px, 100%);
+  flex: 0 0 calc((100% - (var(--cols) - 1) * var(--gap)) / var(--cols));
   flex-direction: column;
   gap: var(--space-3);
-  max-width: 460px;
+  min-width: 0;
   padding: var(--space-4);
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
   background: var(--surface);
 }
 
-.pageCardWide {
-  flex-basis: min(560px, 100%);
-  max-width: 760px;
+.pages:has(.pageCardWide) {
+  --cols: 2;
+}
+
+@media (max-width: 1000px) {
+  .pages {
+    --cols: 2;
+  }
+}
+
+@media (max-width: 640px) {
+  .pages,
+  .pages:has(.pageCardWide) {
+    --cols: 1;
+  }
 }
 
 .pageHead {
