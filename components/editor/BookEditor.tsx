@@ -13,6 +13,7 @@ import {
   draftImages,
   fileUrl,
   GENDERS,
+  pageLabel,
   pageReadiness,
   pageState,
   presentOn,
@@ -303,7 +304,7 @@ export function BookEditor({ initial }: { initial: Book }) {
                   <img src={fileUrl(bookFile(book, p.thumb))} alt="" />
                   <span className={cx(ui.dot, styles.thumbDot, STATE[thumbState].dot)} />
                 </span>
-                <span className={styles.thumbLabel}>{p.kind === 'cover' ? 'Cover' : `Page ${p.index}`}</span>
+                <span className={styles.thumbLabel}>{p.kind === 'skip' ? `Skipped (PDF page ${p.index})` : pageLabel(book, p)}</span>
               </button>
             );
           })}
@@ -511,7 +512,7 @@ export function BookEditor({ initial }: { initial: Book }) {
           ) : (
             <div className={ui.panel}>
               <div className={ui.section}>
-                <span className={ui.eyebrow}>{page.kind === 'cover' ? 'Cover' : `Page ${page.index}`}</span>
+                <span className={ui.eyebrow}>{page.kind === 'skip' ? `Skipped (PDF page ${page.index})` : pageLabel(book, page)}</span>
                 <div className={ui.field}>
                   <span className={ui.label}>Page type</span>
                   <div className={ui.segmented} role="group" aria-label="Page type">

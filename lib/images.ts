@@ -71,19 +71,35 @@ export async function unpad(answer: Buffer, crop: Padded['crop'], width: number,
  * Keeps the original everywhere except soft-edged areas around the characters' boxes, so the
  * background, other characters and colours stay pixel-identical to the book.
  */
-export async function blendInBox(original: Buffer, edited: Buffer, boxes: Box[], width: number, height: number, grow = 0.12): Promise<Buffer> {
+export async function blendInBox(
+  original: Buffer,
+  edited: Buffer,
+  boxes: Box[],
+  width: number,
+  height: number,
+  grow = 0.12,
+  /**
+   * 'in': the soft edge lies inside each area (the close-up's own edge). 'out': every pixel of the
+   * area is taken in full and the edge fades outside it, over the background: an inward edge
+   * made new hair and glasses near it half transparent.
+   */
+  fade: 'in' | 'out' = 'in'
+): Promise<Buffer> {
   const feather = Math.max(4, Math.round(Math.min(width, height) * 0.015));
+  // Inward: the rect sits one feather inside the area. Outward: two feathers outside, so the blur
+  // is still fully opaque at the area's own edge (a Gaussian reaches ~98% two sigmas in).
+  const inset = fade === 'in' ? feather : -2 * feather;
   const rects = boxes.map((box) => {
     // Grow the box a little: the model often redraws hair or a hand just past it.
     const x = Math.max(0, (box.x - box.w * grow) / 100) * width;
     const y = Math.max(0, (box.y - box.h * grow) / 100) * height;
     const x2 = Math.min(1, (box.x + box.w * (1 + grow)) / 100) * width;
     const y2 = Math.min(1, (box.y + box.h * (1 + grow)) / 100) * height;
-    return `<rect x="${x + feather}" y="${y + feather}" width="${Math.max(1, x2 - x - 2 * feather)}" height="${Math.max(1, y2 - y - 2 * feather)}" rx="${feather * 2}" fill="#fff"/>`;
+    return `<rect x="${x + inset}" y="${y + inset}" width="${Math.max(1, x2 - x - 2 * inset)}" height="${Math.max(1, y2 - y - 2 * inset)}" rx="${feather * 2}" fill="#fff"/>`;
   });
   const mask = Buffer.from(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
-      <defs><filter id="f" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="${feather}"/></filter></defs>
+      <defs><filter id="f" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="${feather}"/></filter></defs>
       <g filter="url(#f)">${rects.join('')}</g>
     </svg>`
   );
@@ -92,21 +108,32 @@ export async function blendInBox(original: Buffer, edited: Buffer, boxes: Box[],
 }
 
 /**
- * What of a character box to take from a redraw: the head part with room for new, bigger hair
- * (12%), the body part closer (9%: the blend softens 26 px inwards, an arm at the edge needs that),
- * so less of what they touch is taken from the AI.
- * Already grown: blend them with grow = 0.
+ * What of a character box to take from a redraw, in % of an image `width` x `height` px. The box
+ * outlines the book's original character, but the new person's hair or glasses can be bigger, and
+ * a head can land a little off: the head part gets 25% of the head's size around it, never less
+ * than 60 px (a small figure got ~7 px before). The body part stays close (9%, at least 20 px), so
+ * little of what they touch is taken from the AI. Already grown: blend with grow = 0, fade 'out'.
  */
-export function personAreas(box: Box): Box[] {
-  const head = 0.45;
+export function personAreas(box: Box, width: number, height: number): Box[] {
+  const headShare = 0.45;
+  const px = (pctW: number, pctH: number) => [(pctW / 100) * width, (pctH / 100) * height] as const;
+  const [bw, bh] = px(box.w, box.h);
+  const headSize = Math.max(bw, bh * headShare);
+  const headPad = Math.max(60, headSize * 0.25);
+  const bodyPadX = Math.max(20, bw * 0.09);
+  const bodyPadY = Math.max(20, bh * 0.09);
   const area = (x0: number, y0: number, x1: number, y1: number): Box => {
     const x = Math.max(0, x0);
     const y = Math.max(0, y0);
     return { x, y, w: Math.min(100, x1) - x, h: Math.min(100, y1) - y };
   };
+  const hx = (headPad / width) * 100;
+  const hy = (headPad / height) * 100;
+  const bx = (bodyPadX / width) * 100;
+  const by = (bodyPadY / height) * 100;
   return [
-    area(box.x - box.w * 0.12, box.y - box.h * 0.12, box.x + box.w * 1.12, box.y + box.h * head),
-    area(box.x - box.w * 0.09, box.y + box.h * head, box.x + box.w * 1.09, box.y + box.h * 1.09),
+    area(box.x - hx, box.y - hy, box.x + box.w + hx, box.y + box.h * headShare + hy),
+    area(box.x - bx, box.y + box.h * headShare, box.x + box.w + bx, box.y + box.h + by),
   ];
 }
 

@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { cx } from '@/lib/client';
 import { regeneratePage } from '@/lib/local/runner';
 import { getRun } from '@/lib/local/store';
-import { chosenFile, DISPLAY_ONLY, FIX_MAX, fileUrl, presentOn, type Book, type BookCharacter, type Example } from '@/lib/types';
+import { chosenFile, DISPLAY_ONLY, FIX_MAX, fileUrl, pageLabel, presentOn, type Book, type BookCharacter, type Example } from '@/lib/types';
 
 import { BookFonts, BookPage } from '../BookPage';
 import { BackIcon, BookIcon, RedoIcon } from '../icons';
@@ -96,7 +96,7 @@ export function ExampleView({ example, book, pdfUrl, editable = false }: { examp
         <ul className={run$.pages}>
           {pages.map((page) => {
             const file = chosenFile(run.pages[page.index]);
-            const label = page.kind === 'cover' ? 'Cover' : `Page ${page.index}`;
+            const label = pageLabel(book, page);
             return (
               <li key={page.index} className={cx(run$.pageCard, book.pageWidth > book.pageHeight && run$.pageCardWide)}>
                 <strong>{label}</strong>

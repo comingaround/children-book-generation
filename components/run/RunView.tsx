@@ -9,7 +9,7 @@ import { publishExample } from '@/lib/local/examples';
 import { downloadPdf } from '@/lib/local/pdf';
 import { approveCast, regenerateCharacter, regeneratePage, retryText, selectCharacter, selectPageAttempt, setTogether, touchUpPage } from '@/lib/local/runner';
 import { deleteRun } from '@/lib/local/store';
-import { canDrawTogether, chosenFile, chosenIndex, FIX_MAX, fileUrl, presentOn, type Book, type CastStep, type Person, type Run, type RunStep } from '@/lib/types';
+import { canDrawTogether, chosenFile, chosenIndex, FIX_MAX, fileUrl, pageLabel, presentOn, type Book, type CastStep, type Person, type Run, type RunStep } from '@/lib/types';
 
 import { BookFonts, BookPage } from '../BookPage';
 import { BackIcon, BookIcon, CheckIcon, RedoIcon, TrashIcon } from '../icons';
@@ -298,7 +298,7 @@ function RunBody({ run, book, people, price, serverPdf }: { run: Run; book: Book
             const file = chosenFile(step);
             const shown = step.attempts.at(chosenIndex(step));
             const onPage = presentOn(book, page).filter((c) => castIds.includes(c.id));
-            const label = page.kind === 'cover' ? 'Cover' : `Page ${page.index}`;
+            const label = pageLabel(book, page);
             const busy = busyStep(step);
             const canFix = step.attempts.length > 0 || step.status === 'error';
             // "All at once" quietly becomes one by one when someone on the page has no box.

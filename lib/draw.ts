@@ -104,16 +104,19 @@ export async function drawPageStep({ book, read }: BookInput, index: number, art
   }));
 
   const padded = await padToRatio(closeUp ? await cutRegion(original, region) : original);
-  const answer = await generateImage([padded.image, ...refs], pagePrompt(book, page, prompted, closeUp, fixFor ? null : fix), { aspectRatio: padded.ratio });
+  // 4K for pages: drawn all at once, each face is small in the model's view; 4x the pixels keeps
+  // likeness, curls and glasses (GEMINI_PAGE_IMAGE_SIZE to change it).
+  const imageSize = (process.env.GEMINI_PAGE_IMAGE_SIZE as '1K' | '2K' | '4K' | undefined) ?? '4K';
+  const answer = await generateImage([padded.image, ...refs], pagePrompt(book, page, prompted, closeUp, fixFor ? null : fix), { aspectRatio: padded.ratio, imageSize });
   const edited = await unpad(answer, padded.crop, region.width, region.height);
 
   // Keep the rest outside the boxes; without that setting, still feather a close-up's edge.
   const kept = boxes.filter((b): b is Box => !!b);
   const people = book.settings.keepOutsideBox && kept.length;
-  const keep = people ? kept.flatMap(personAreas) : closeUp ? [EDGE_FEATHER] : [];
+  const keep = people ? kept.flatMap((b) => personAreas(b, region.width, region.height)) : closeUp ? [EDGE_FEATHER] : [];
   if (!keep.length) return toJpeg(await keepText(page, edited, read));
   const before = await sharp(original).extract(region).png().toBuffer();
-  const after = await blendInBox(before, edited, keep, region.width, region.height, people ? 0 : undefined);
+  const after = await blendInBox(before, edited, keep, region.width, region.height, people ? 0 : undefined, people ? 'out' : 'in');
   return toJpeg(await keepText(page, closeUp ? await pasteRegion(original, after, region) : after, read));
 }
 
@@ -139,10 +142,10 @@ export async function touchUpPageStep({ book, read }: BookInput, index: number, 
   const edited = await unpad(answer, base.crop, region.width, region.height);
 
   const people = book.settings.keepOutsideBox && boxes.length;
-  const keep = people ? boxes.flatMap(personAreas) : closeUp ? [EDGE_FEATHER] : [];
+  const keep = people ? boxes.flatMap((b) => personAreas(b, region.width, region.height)) : closeUp ? [EDGE_FEATHER] : [];
   if (!keep.length) return toJpeg(await keepText(page, edited, read));
   const before = await sharp(current).extract(region).png().toBuffer();
-  const after = await blendInBox(before, edited, keep, region.width, region.height, people ? 0 : undefined);
+  const after = await blendInBox(before, edited, keep, region.width, region.height, people ? 0 : undefined, people ? 'out' : 'in');
   return toJpeg(await keepText(page, closeUp ? await pasteRegion(current, after, region) : after, read));
 }
 
@@ -169,7 +172,7 @@ async function keepText(page: Page, result: Buffer, read: BookInput['read']): Pr
     const y = Math.max(0, t.y - pad);
     return { x, y, w: Math.min(100, t.x + t.w + pad) - x, h: Math.min(100, t.y + t.h + pad) - y };
   });
-  return blendInBox(sized, original, padded, page.imageWidth, page.imageHeight);
+  return blendInBox(sized, original, padded, page.imageWidth, page.imageHeight, 0.12, 'out');
 }
 
 // ---- he/she in the text ------------------------------------------------------------------

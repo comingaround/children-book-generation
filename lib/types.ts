@@ -359,6 +359,16 @@ export function pageImageCount(book: Book, indexes: number[], characterIds: stri
 
 export type PageState = 'skip' | 'noCast' | 'ready' | 'needsBox';
 
+/**
+ * A page's name as people see it: "Cover", or "Page 1, 2, 3…" counting only the story pages, so
+ * a skipped copyright page doesn't leave a gap ("Cover, Page 3"). The PDF keeps every page.
+ */
+export function pageLabel(book: Pick<Book, 'pages'>, page: Pick<Page, 'index' | 'kind'>): string {
+  if (page.kind === 'cover') return 'Cover';
+  if (page.kind === 'skip') return 'Skipped page';
+  return `Page ${book.pages.filter((p) => p.kind === 'page' && p.index <= page.index).length}`;
+}
+
 /** For the status dots: a page is ready once every character on it has a box. */
 export function pageState(book: Book, page: Page): PageState {
   if (page.kind === 'skip') return 'skip';

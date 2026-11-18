@@ -241,7 +241,7 @@ function noOutput(model: string, env: Envelope, what: string): GeminiError {
 export async function generateImage(
   images: InlineImage[],
   prompt: string,
-  opts: { aspectRatio?: string; onRetry?: OnRetry } = {}
+  opts: { aspectRatio?: string; imageSize?: '1K' | '2K' | '4K'; onRetry?: OnRetry } = {}
 ): Promise<Buffer> {
   const model = process.env.GEMINI_IMAGE_MODEL || 'gemini-3-pro-image';
   const env = await call(
@@ -250,7 +250,7 @@ export async function generateImage(
     prompt,
     {
       responseModalities: ['IMAGE'],
-      imageConfig: { imageSize: '2K', ...(opts.aspectRatio ? { aspectRatio: opts.aspectRatio } : {}) },
+      imageConfig: { imageSize: opts.imageSize ?? '2K', ...(opts.aspectRatio ? { aspectRatio: opts.aspectRatio } : {}) },
     },
     opts.onRetry
   );

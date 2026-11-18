@@ -7,7 +7,7 @@ import { cx, money } from '@/lib/client';
 import { downloadPdf } from '@/lib/local/pdf';
 import { approveCast, orderFullBook, regenerateCharacter, regeneratePage, setTogether } from '@/lib/local/runner';
 import { deletePhoto } from '@/lib/local/store';
-import { canDrawTogether, chosenFile, fileUrl, pageImageCount, testPages, type Book, type CastStep, type Person, type Run, type RunStep } from '@/lib/types';
+import { canDrawTogether, chosenFile, fileUrl, pageImageCount, pageLabel, testPages, type Book, type CastStep, type Person, type Run, type RunStep } from '@/lib/types';
 
 import { BookFonts, BookPage } from '../BookPage';
 import { BackIcon, BookIcon, CheckIcon, RedoIcon } from '../icons';
@@ -187,7 +187,7 @@ function PreviewBody({ run, book, people, price, serverPdf }: { run: Run; book: 
           {pages.map((page) => {
             const step = run.pages[page.index];
             const file = chosenFile(step);
-            const label = page.kind === 'cover' ? 'Cover' : `Page ${page.index}`;
+            const label = pageLabel(book, page);
             return (
               <li key={page.index} className={cx(run$.pageCard, book.pageWidth > book.pageHeight && run$.pageCardWide)}>
                 <strong>{label}</strong>
