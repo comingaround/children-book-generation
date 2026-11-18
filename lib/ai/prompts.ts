@@ -11,7 +11,11 @@ function where(box: Box): string {
 }
 
 /** What the character wears on this page: the page's own outfit, else their usual one. */
-export const clothingOn = (character: BookCharacter, page: Page) => castOn(page, character.id).clothing.trim() || character.clothing.trim();
+/**
+ * What a character wears on a page, as noted for that page. No fallback to their usual outfit: a
+ * page where they wear pyjamas once came out in the usual striped polo. Empty = only the picture says.
+ */
+export const clothingOn = (character: BookCharacter, page: Page) => castOn(page, character.id).clothing.trim();
 
 /** Book faces are simpler than real ones; without this the likeness pulls the face towards realism. */
 const FACE_CONVENTIONS =
@@ -95,7 +99,7 @@ export function pagePrompt(book: Book, page: Page, members: PromptMember[], clos
     return [
       `${art} Image 2 shows the head of ${who(m.person)}, drawn in this book's style. Image 3 is a photo of them, for likeness only.`,
       `Edit image 1: change only ${f.target}${m.box ? `, in ${where(m.box)}` : ''}. Give them the face, hair (colour, length and style), skin tone, facial hair and any glasses from image 2. Take nothing else from image 2.${f.genderSwap}`,
-      `Keep their clothing exactly as in image 1${f.clothing ? ` (${f.clothing})` : ''}: same garments, colours and patterns.`,
+      `Keep their clothing exactly as drawn in image 1: the same garments, colours, patterns and finish.${f.clothing ? ` A note on it, if image 1 and the note disagree, image 1 wins: ${f.clothing}.` : ''}`,
       `Keep their pose and direction exactly as in image 1${f.pose ? `: ${f.pose}` : ''}. Same body position, which way they face, where they look, gestures, expression, size and place in the picture.`,
       ...closingLines(book, page, [fix, m.fix].filter(Boolean).join('; ') || null),
     ]
@@ -109,7 +113,7 @@ export function pagePrompt(book: Book, page: Page, members: PromptMember[], clos
     return [
       `Person ${i + 1}: ${f.target}${m.box ? `, in ${where(m.box)}` : ''}. Image ${head} shows the head of ${who(m.person)} drawn in this book's style; image ${head + 1} is their photo, for likeness only.`,
       `Give this character the face, hair (colour, length and style), skin tone, facial hair and any glasses from image ${head}, and nothing else from it.${f.genderSwap}`,
-      `Keep their clothing${f.clothing ? ` (${f.clothing})` : ''} and their pose and direction${f.pose ? ` (${f.pose})` : ''} exactly as in image 1: same body position, which way they face, where they look, gestures, expression, size and place.`,
+      `Keep their clothing exactly as drawn in image 1 (same garments, colours, patterns and finish${f.clothing ? `; a note, image 1 wins if they disagree: ${f.clothing}` : ''}) and their pose and direction${f.pose ? ` (${f.pose})` : ''} exactly as in image 1: same body position, which way they face, where they look, gestures, expression, size and place.`,
       m.fix ? `For this person only: ${m.fix}` : '',
     ]
       .filter(Boolean)
@@ -132,8 +136,6 @@ export interface CastDraft {
   hint: string;
   pose: string;
   clothing: string;
-  /** True when the outfit on this page differs from the character's usual one. */
-  clothingDiffers: boolean;
   /** [ymin, xmin, ymax, xmax] on a 0–1000 grid, Gemini's native box format. */
   box: number[] | null;
 }
@@ -157,10 +159,9 @@ export const pageDraftSchema = {
           hint: { type: 'STRING' },
           pose: { type: 'STRING' },
           clothing: { type: 'STRING' },
-          clothingDiffers: { type: 'BOOLEAN' },
           box: { type: 'ARRAY', items: { type: 'INTEGER' }, nullable: true },
         },
-        required: ['id', 'present', 'hint', 'pose', 'clothing', 'clothingDiffers', 'box'],
+        required: ['id', 'present', 'hint', 'pose', 'clothing', 'box'],
       },
     },
   },
@@ -170,7 +171,8 @@ export const pageDraftSchema = {
 export function pageDraftPrompt(book: Book, page: Page): string {
   const text = page.lines.map((l) => l.text).join(' ');
   const characters = book.characters
-    .map((c) => `- id "${c.id}": ${c.label}${c.description ? `, ${c.description}` : ''}${c.clothing ? `; usually wears ${c.clothing}` : ''}`)
+    // Who they are, not what they usually wear: that pulled each page's clothing read towards it.
+    .map((c) => `- id "${c.id}": ${c.label}${c.description ? `, ${c.description}` : ''}`)
     .join('\n');
   return [
     `This is ${page.kind === 'cover' ? 'the cover' : `page ${page.index}`} of the picture book "${book.title}".`,
@@ -182,8 +184,7 @@ export function pageDraftPrompt(book: Book, page: Page): string {
     '  - present: is this character visible in the illustration?',
     '  - hint: one short phrase that picks them out from everyone else in THIS picture (clothing, hair, position), e.g. "the red-haired girl in a blue blazer sitting on the left". Empty if not visible.',
     '  - pose: their pose and direction in one short phrase. Always start by saying what the viewer sees of them: their face (facing the viewer), their back, their profile (facing left or right), or a three-quarter view. Then the body position, where they look and what the hands do. Empty if not visible.',
-    '  - clothing: what they wear on THIS page, garments and colours. Empty if not visible.',
-    '  - clothingDiffers: true only if that outfit is clearly different from their usual outfit.',
+    '  - clothing: exactly what they wear in THIS picture, judged only from this picture, never from other pages: each visible garment with its exact colour (e.g. off-white, not light blue, when it is off-white), its pattern ("plain" when there is none) and fabric. Empty if not visible.',
     '  - box: the bounding box around them (the whole figure, all of them if shown more than once) as [ymin, xmin, ymax, xmax] on a 0–1000 grid. null if not visible.',
   ]
     .filter(Boolean)

@@ -183,10 +183,10 @@ export function BookEditor({ initial }: { initial: Book }) {
         const nextCast = { ...p.cast };
         for (const d of draft.cast) {
           const old = p.cast[d.id];
-          const found = { present: d.present, hint: d.hint, pose: d.pose, clothing: d.clothingDiffers ? d.clothing : '', box: d.box };
+          const found = { present: d.present, hint: d.hint, pose: d.pose, clothing: d.clothing, box: d.box };
           nextCast[d.id] =
             onlyMissing && old
-              ? { present: old.present, hint: old.hint || found.hint, pose: old.pose || found.pose, clothing: old.clothing, box: old.box ?? found.box }
+              ? { present: old.present, hint: old.hint || found.hint, pose: old.pose || found.pose, clothing: old.clothing || found.clothing, box: old.box ?? found.box }
               : { ...found, box: old?.box ?? found.box };
         }
         const scenePrompt = onlyMissing ? p.scenePrompt || draft.scenePrompt : draft.scenePrompt || p.scenePrompt;
@@ -464,7 +464,7 @@ export function BookEditor({ initial }: { initial: Book }) {
                               rows={1}
                               value={cast.clothing}
                               onChange={(v) => setCast(page.index, character.id, { clothing: v })}
-                              placeholder={character.clothing ? `Usual: ${character.clothing}` : 'Their usual outfit'}
+                              placeholder="What they wear in this picture (Prepare with AI fills it)"
                             />
                           </label>
                           <div className={styles.boxRow}>
