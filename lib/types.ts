@@ -72,8 +72,13 @@ export interface PageCast {
   hint: string;
   /** Pose and direction here, e.g. "back to the viewer, looking left". */
   pose: string;
-  /** Outfit on this page when it differs from their usual one; empty = usual. */
+  /** What they wear in this picture (no fallback to the usual outfit). */
   clothing: string;
+  /**
+   * Their facial expression in this picture only, e.g. "focused, looking down at the toy, mouth
+   * closed". Never carried over from another page or from the person's smiling drawing or photo.
+   */
+  expression?: string;
 }
 
 export interface Page {

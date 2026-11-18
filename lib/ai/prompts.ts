@@ -62,6 +62,7 @@ function characterFacts(page: Page, { character, person }: PromptMember) {
     target: cast.hint.trim() || character.description.trim() || `the book's ${character.label}`,
     clothing: clothingOn(character, page),
     pose: cast.pose.trim(),
+    expression: cast.expression?.trim() ?? '',
     genderSwap:
       character.gender !== person.gender
         ? ` The new person is a ${person.gender} while the original was a ${character.gender}: change the face and hair accordingly, but keep the clothing and pose.`
@@ -81,6 +82,13 @@ const keepObjectsLine = (page: Page) =>
   page.keepObjects?.trim()
     ? `These objects stay exactly as in image 1, with the same shape, outline, angle and position, as if untouched: ${page.keepObjects.trim()}. Hands that rest on them stay exactly where they are; only their skin tone changes.`
     : '';
+
+/**
+ * The face's mood comes from this page's own character: the person's drawing and photo smile
+ * (character sheets and portraits), and that smile used to replace a focused or sleepy original.
+ */
+const expressionLine = (expression: string, refs: string) =>
+  `Their facial expression comes only from image 1, this page's own character: where the eyes look, how open they are, the eyebrows and the mouth exactly as there${expression ? ` (${expression})` : ''}. ${refs} show who they are, not how they feel: ignore the smile and expression in them.`;
 
 const correction = (fix: string | null) => (fix ? `A correction for this version, which takes priority over anything above: ${fix}` : '');
 
@@ -116,6 +124,7 @@ export function pagePrompt(book: Book, page: Page, members: PromptMember[], clos
       `Keep their clothing exactly as drawn in image 1: the same garments, colours, patterns and finish.${f.clothing ? ` A note on it, if image 1 and the note disagree, image 1 wins: ${f.clothing}.` : ''}`,
       `Keep their pose and direction exactly as in image 1${f.pose ? `: ${f.pose}` : ''}. Same body position, which way they face, where they look, gestures, expression, size and place in the picture.`,
       HEAD_PLACE,
+      expressionLine(f.expression, 'Images 2 and 3'),
       ...closingLines(book, page, [fix, m.fix].filter(Boolean).join('; ') || null),
     ]
       .filter(Boolean)
@@ -130,6 +139,7 @@ export function pagePrompt(book: Book, page: Page, members: PromptMember[], clos
       `Give this character the face, hair (colour, length and style), skin tone, facial hair and any glasses from image ${head}, and nothing else from it.${f.genderSwap}`,
       `Keep their clothing exactly as drawn in image 1 (same garments, colours, patterns and finish${f.clothing ? `; a note, image 1 wins if they disagree: ${f.clothing}` : ''}) and their pose and direction${f.pose ? ` (${f.pose})` : ''} exactly as in image 1: same body position, which way they face, where they look, gestures, expression, size and place.`,
       HEAD_PLACE,
+      expressionLine(f.expression, `Images ${head} and ${head + 1}`),
       m.fix ? `For this person only: ${m.fix}` : '',
     ]
       .filter(Boolean)
@@ -152,6 +162,7 @@ export interface CastDraft {
   hint: string;
   pose: string;
   clothing: string;
+  expression: string;
   /** [ymin, xmin, ymax, xmax] on a 0–1000 grid, Gemini's native box format. */
   box: number[] | null;
 }
@@ -179,9 +190,10 @@ export const pageDraftSchema = {
           hint: { type: 'STRING' },
           pose: { type: 'STRING' },
           clothing: { type: 'STRING' },
+          expression: { type: 'STRING' },
           box: { type: 'ARRAY', items: { type: 'INTEGER' }, nullable: true },
         },
-        required: ['id', 'present', 'hint', 'pose', 'clothing', 'box'],
+        required: ['id', 'present', 'hint', 'pose', 'clothing', 'expression', 'box'],
       },
     },
     texts: {
@@ -214,6 +226,7 @@ export function pageDraftPrompt(book: Book, page: Page): string {
     '  - hint: one short phrase that picks them out from everyone else in THIS picture (clothing, hair, position), e.g. "the red-haired girl in a blue blazer sitting on the left". Empty if not visible.',
     '  - pose: their pose and direction in one short phrase. Always start by saying what the viewer sees of them: their face (facing the viewer), their back, their profile (facing left or right), or a three-quarter view. Then the body position, where they look and what the hands do. Empty if not visible.',
     '  - clothing: exactly what they wear in THIS picture, judged only from this picture, never from other pages: each visible garment with its exact colour (e.g. off-white, not light blue, when it is off-white), its pattern ("plain" when there is none) and fabric. Empty if not visible.',
+    '  - expression: their facial expression in THIS picture only, judged from this picture alone: where the eyes look, how open they are, the eyebrows, and the mouth (closed, a soft smile, a wide smile, open, pouting), e.g. "focused, eyes down on the toy, mouth closed". Empty if the face is not visible.',
     '  - box: the bounding box around them (the whole figure, all of them if shown more than once) as [ymin, xmin, ymax, xmax] on a 0–1000 grid. null if not visible.',
     '- texts: every block of words printed in the image itself: story text in a speech bubble or caption panel, a title, words on a sign or book cover. One entry per block: text (its words, as printed) and box (around all its letters and its bubble or panel) as [ymin, xmin, ymax, xmax] on a 0–1000 grid. Many picture books print the story text inside the illustration, so look carefully. An empty list only if there are no words at all.',
     '- keepObjects: the objects a character touches, holds, sits on, leans on or overlaps in THIS picture, each named so it can be found and with what touches it, e.g. "the toy castle under the boy’s hands, the stool he sits on, the teacup in the girl’s hand". Empty if none.',

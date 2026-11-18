@@ -183,10 +183,10 @@ export function BookEditor({ initial }: { initial: Book }) {
         const nextCast = { ...p.cast };
         for (const d of draft.cast) {
           const old = p.cast[d.id];
-          const found = { present: d.present, hint: d.hint, pose: d.pose, clothing: d.clothing, box: d.box };
+          const found = { present: d.present, hint: d.hint, pose: d.pose, clothing: d.clothing, expression: d.expression, box: d.box };
           nextCast[d.id] =
             onlyMissing && old
-              ? { present: old.present, hint: old.hint || found.hint, pose: old.pose || found.pose, clothing: old.clothing || found.clothing, box: old.box ?? found.box }
+              ? { present: old.present, hint: old.hint || found.hint, pose: old.pose || found.pose, clothing: old.clothing || found.clothing, expression: old.expression || found.expression, box: old.box ?? found.box }
               : { ...found, box: old?.box ?? found.box };
         }
         const scenePrompt = onlyMissing ? p.scenePrompt || draft.scenePrompt : draft.scenePrompt || p.scenePrompt;
@@ -224,7 +224,7 @@ export function BookEditor({ initial }: { initial: Book }) {
           const present = characters.filter((c) => p.cast[c.id]?.present);
           const unknown = characters.some((c) => !p.cast[c.id]);
           // textBoxes undefined = never checked for printed text (an empty list = checked, none).
-          return !p.scenePrompt || unknown || p.textBoxes === undefined || p.keepObjects === undefined || present.some((c) => !p.cast[c.id].box || !p.cast[c.id].pose || !p.cast[c.id].clothing);
+          return !p.scenePrompt || unknown || p.textBoxes === undefined || p.keepObjects === undefined || present.some((c) => !p.cast[c.id].box || !p.cast[c.id].pose || !p.cast[c.id].clothing || p.cast[c.id].expression === undefined);
         });
         for (const [i, p] of todo.entries()) {
           setProgress(`Page ${i + 1} of ${todo.length}…`);
@@ -462,6 +462,15 @@ export function BookEditor({ initial }: { initial: Book }) {
                           <label className={ui.field}>
                             <span className={ui.label}>Pose and direction (kept)</span>
                             <GrowField value={cast.pose} onChange={(v) => setCast(page.index, character.id, { pose: v })} placeholder="three-quarter view facing left, smiling down at the girl" />
+                          </label>
+                          <label className={ui.field}>
+                            <span className={ui.label}>Expression on this page (kept)</span>
+                            <GrowField
+                              rows={1}
+                              value={cast.expression ?? ''}
+                              onChange={(v) => setCast(page.index, character.id, { expression: v })}
+                              placeholder="focused, eyes down on the toy, mouth closed"
+                            />
                           </label>
                           <label className={ui.field}>
                             <span className={ui.label}>Clothing on this page (kept)</span>
