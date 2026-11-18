@@ -57,6 +57,6 @@ export async function POST(req: Request) {
       const [ymin, xmin, ymax, xmax] = t.map((n) => Math.min(Math.max(n / 10, 0), 100));
       return xmax > xmin && ymax > ymin ? [{ x: r(xmin), y: r(ymin), w: r(xmax - xmin), h: r(ymax - ymin) }] : [];
     });
-    return Response.json({ scenePrompt: draft.scenePrompt, cast, textBoxes });
+    return Response.json({ scenePrompt: draft.scenePrompt, cast, textBoxes, keepObjects: draft.keepObjects ?? '' });
   });
 }

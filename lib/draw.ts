@@ -16,6 +16,7 @@ import {
   headOf,
   padToRatio,
   pasteRegion,
+  personAreas,
   toJpeg,
   unionBox,
   unpad,
@@ -108,10 +109,11 @@ export async function drawPageStep({ book, read }: BookInput, index: number, art
 
   // Keep the rest outside the boxes; without that setting, still feather a close-up's edge.
   const kept = boxes.filter((b): b is Box => !!b);
-  const keep = book.settings.keepOutsideBox && kept.length ? kept : closeUp ? [EDGE_FEATHER] : [];
+  const people = book.settings.keepOutsideBox && kept.length;
+  const keep = people ? kept.flatMap(personAreas) : closeUp ? [EDGE_FEATHER] : [];
   if (!keep.length) return toJpeg(await keepText(page, edited, read));
   const before = await sharp(original).extract(region).png().toBuffer();
-  const after = await blendInBox(before, edited, keep, region.width, region.height);
+  const after = await blendInBox(before, edited, keep, region.width, region.height, people ? 0 : undefined);
   return toJpeg(await keepText(page, closeUp ? await pasteRegion(original, after, region) : after, read));
 }
 
@@ -136,10 +138,11 @@ export async function touchUpPageStep({ book, read }: BookInput, index: number, 
   const answer = await generateImage([base.image, reference.image], touchUpPrompt(book, page, characters, fix), { aspectRatio: base.ratio });
   const edited = await unpad(answer, base.crop, region.width, region.height);
 
-  const keep = book.settings.keepOutsideBox && boxes.length ? boxes : closeUp ? [EDGE_FEATHER] : [];
+  const people = book.settings.keepOutsideBox && boxes.length;
+  const keep = people ? boxes.flatMap(personAreas) : closeUp ? [EDGE_FEATHER] : [];
   if (!keep.length) return toJpeg(await keepText(page, edited, read));
   const before = await sharp(current).extract(region).png().toBuffer();
-  const after = await blendInBox(before, edited, keep, region.width, region.height);
+  const after = await blendInBox(before, edited, keep, region.width, region.height, people ? 0 : undefined);
   return toJpeg(await keepText(page, closeUp ? await pasteRegion(current, after, region) : after, read));
 }
 

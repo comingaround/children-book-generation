@@ -175,7 +175,7 @@ export function BookEditor({ initial }: { initial: Book }) {
    * `onlyMissing` (Prepare all) fills only characters and fields not set yet, so edits survive.
    */
   async function draftPage(target: Page, characters = book.characters, settings = book.settings, onlyMissing = false) {
-    const draft = await askDraft<{ scenePrompt: string; cast: (Omit<CastDraft, 'box'> & { box: Box | null })[]; textBoxes: Box[] }>({ index: target.index, characters, settings });
+    const draft = await askDraft<{ scenePrompt: string; cast: (Omit<CastDraft, 'box'> & { box: Box | null })[]; textBoxes: Box[]; keepObjects: string }>({ index: target.index, characters, settings });
     change((b) => ({
       ...b,
       pages: b.pages.map((p) => {
@@ -191,7 +191,8 @@ export function BookEditor({ initial }: { initial: Book }) {
         }
         const scenePrompt = onlyMissing ? p.scenePrompt || draft.scenePrompt : draft.scenePrompt || p.scenePrompt;
         const textBoxes = onlyMissing && p.textBoxes?.length ? p.textBoxes : draft.textBoxes;
-        return { ...p, scenePrompt, cast: nextCast, textBoxes };
+        const keepObjects = onlyMissing && p.keepObjects?.trim() ? p.keepObjects : draft.keepObjects;
+        return { ...p, scenePrompt, cast: nextCast, textBoxes, keepObjects };
       }),
     }));
   }
@@ -223,7 +224,7 @@ export function BookEditor({ initial }: { initial: Book }) {
           const present = characters.filter((c) => p.cast[c.id]?.present);
           const unknown = characters.some((c) => !p.cast[c.id]);
           // textBoxes undefined = never checked for printed text (an empty list = checked, none).
-          return !p.scenePrompt || unknown || p.textBoxes === undefined || present.some((c) => !p.cast[c.id].box || !p.cast[c.id].pose || !p.cast[c.id].clothing);
+          return !p.scenePrompt || unknown || p.textBoxes === undefined || p.keepObjects === undefined || present.some((c) => !p.cast[c.id].box || !p.cast[c.id].pose || !p.cast[c.id].clothing);
         });
         for (const [i, p] of todo.entries()) {
           setProgress(`Page ${i + 1} of ${todo.length}…`);
@@ -521,6 +522,17 @@ export function BookEditor({ initial }: { initial: Book }) {
                       onChange={(v) => setPage(page.index, { scenePrompt: v })}
                       placeholder="Where we are, who is there and what they are doing."
                     />
+                  </label>
+                )}
+                {page.kind !== 'skip' && (
+                  <label className={ui.field}>
+                    <span className={ui.label}>Objects to keep exactly</span>
+                    <GrowField
+                      value={page.keepObjects ?? ''}
+                      onChange={(v) => setPage(page.index, { keepObjects: v })}
+                      placeholder="What the characters touch or overlap, e.g. the toy castle under the boy's hands"
+                    />
+                    <span className={ui.help}>Every redraw is told to leave these exactly in place, the same shape and outline.</span>
                   </label>
                 )}
                 {page.lines.length > 0 && (

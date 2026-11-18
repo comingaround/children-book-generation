@@ -71,11 +71,10 @@ export async function unpad(answer: Buffer, crop: Padded['crop'], width: number,
  * Keeps the original everywhere except soft-edged areas around the characters' boxes, so the
  * background, other characters and colours stay pixel-identical to the book.
  */
-export async function blendInBox(original: Buffer, edited: Buffer, boxes: Box[], width: number, height: number): Promise<Buffer> {
+export async function blendInBox(original: Buffer, edited: Buffer, boxes: Box[], width: number, height: number, grow = 0.12): Promise<Buffer> {
   const feather = Math.max(4, Math.round(Math.min(width, height) * 0.015));
   const rects = boxes.map((box) => {
     // Grow the box a little: the model often redraws hair or a hand just past it.
-    const grow = 0.12;
     const x = Math.max(0, (box.x - box.w * grow) / 100) * width;
     const y = Math.max(0, (box.y - box.h * grow) / 100) * height;
     const x2 = Math.min(1, (box.x + box.w * (1 + grow)) / 100) * width;
@@ -90,6 +89,25 @@ export async function blendInBox(original: Buffer, edited: Buffer, boxes: Box[],
   );
   const cutout = await sharp(edited).ensureAlpha().composite([{ input: mask, blend: 'dest-in' }]).png().toBuffer();
   return sharp(original).composite([{ input: cutout }]).toBuffer();
+}
+
+/**
+ * What of a character box to take from a redraw: the head part with room for new, bigger hair
+ * (12%), the body part closer (9%: the blend softens 26 px inwards, an arm at the edge needs that),
+ * so less of what they touch is taken from the AI.
+ * Already grown: blend them with grow = 0.
+ */
+export function personAreas(box: Box): Box[] {
+  const head = 0.45;
+  const area = (x0: number, y0: number, x1: number, y1: number): Box => {
+    const x = Math.max(0, x0);
+    const y = Math.max(0, y0);
+    return { x, y, w: Math.min(100, x1) - x, h: Math.min(100, y1) - y };
+  };
+  return [
+    area(box.x - box.w * 0.12, box.y - box.h * 0.12, box.x + box.w * 1.12, box.y + box.h * head),
+    area(box.x - box.w * 0.09, box.y + box.h * head, box.x + box.w * 1.09, box.y + box.h * 1.09),
+  ];
 }
 
 /** The smallest box around several boxes. */

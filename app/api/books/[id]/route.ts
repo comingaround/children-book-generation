@@ -25,6 +25,7 @@ export async function PUT(req: Request, { params }: Ctx) {
       page.kind = edit.kind ?? page.kind;
       page.scenePrompt = edit.scenePrompt ?? page.scenePrompt;
       if (Array.isArray(edit.textBoxes)) page.textBoxes = edit.textBoxes;
+      if (typeof edit.keepObjects === 'string') page.keepObjects = edit.keepObjects;
       // Drop entries for characters that were removed from the book.
       if (edit.cast) page.cast = Object.fromEntries(Object.entries(edit.cast).filter(([id]) => ids.has(id)));
     }

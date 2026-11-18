@@ -69,12 +69,26 @@ function characterFacts(page: Page, { character, person }: PromptMember) {
   };
 }
 
+/**
+ * Where the new head goes. The model used to drift a head ~20 px sideways or lower, and squeeze
+ * bigger new hair into the old hair's outline.
+ */
+const HEAD_PLACE =
+  'Keep the head exactly where it is in image 1: the eyes, nose, mouth and chin at the same spot, the head the same size and at the same tilt. The new hair grows outward from that same head: never shrink, flatten or crop bigger, curlier or longer hair to fit the old hair’s outline, give it the room it needs.';
+
+/** Objects the characters touch: the part of a box that isn't the person must not move. */
+const keepObjectsLine = (page: Page) =>
+  page.keepObjects?.trim()
+    ? `These objects stay exactly as in image 1, with the same shape, outline, angle and position, as if untouched: ${page.keepObjects.trim()}. Hands that rest on them stay exactly where they are; only their skin tone changes.`
+    : '';
+
 const correction = (fix: string | null) => (fix ? `A correction for this version, which takes priority over anything above: ${fix}` : '');
 
 /** The lines every page prompt ends with. */
 const closingLines = (book: Book, page: Page, fix: string | null) => [
   styleLine(book),
   'Everything else must stay identical to image 1: every other character, the background, objects, composition, framing and colours. If a changed character appears more than once, change every appearance.',
+  keepObjectsLine(page),
   // Some books print their text into the art: a model once rewrote "Noah and Lina" there with a person's name.
   page.kind === 'cover'
     ? 'Keep any title lettering exactly as it is, letter for letter.'
@@ -101,6 +115,7 @@ export function pagePrompt(book: Book, page: Page, members: PromptMember[], clos
       `Edit image 1: change only ${f.target}${m.box ? `, in ${where(m.box)}` : ''}. Give them the face, hair (colour, length and style), skin tone, facial hair and any glasses from image 2. Take nothing else from image 2.${f.genderSwap}`,
       `Keep their clothing exactly as drawn in image 1: the same garments, colours, patterns and finish.${f.clothing ? ` A note on it, if image 1 and the note disagree, image 1 wins: ${f.clothing}.` : ''}`,
       `Keep their pose and direction exactly as in image 1${f.pose ? `: ${f.pose}` : ''}. Same body position, which way they face, where they look, gestures, expression, size and place in the picture.`,
+      HEAD_PLACE,
       ...closingLines(book, page, [fix, m.fix].filter(Boolean).join('; ') || null),
     ]
       .filter(Boolean)
@@ -114,6 +129,7 @@ export function pagePrompt(book: Book, page: Page, members: PromptMember[], clos
       `Person ${i + 1}: ${f.target}${m.box ? `, in ${where(m.box)}` : ''}. Image ${head} shows the head of ${who(m.person)} drawn in this book's style; image ${head + 1} is their photo, for likeness only.`,
       `Give this character the face, hair (colour, length and style), skin tone, facial hair and any glasses from image ${head}, and nothing else from it.${f.genderSwap}`,
       `Keep their clothing exactly as drawn in image 1 (same garments, colours, patterns and finish${f.clothing ? `; a note, image 1 wins if they disagree: ${f.clothing}` : ''}) and their pose and direction${f.pose ? ` (${f.pose})` : ''} exactly as in image 1: same body position, which way they face, where they look, gestures, expression, size and place.`,
+      HEAD_PLACE,
       m.fix ? `For this person only: ${m.fix}` : '',
     ]
       .filter(Boolean)
@@ -145,6 +161,8 @@ export interface PageDraft {
   cast: CastDraft[];
   /** Text printed in the picture: its words and [ymin, xmin, ymax, xmax] on a 0–1000 grid. */
   texts: { text: string; box: number[] }[];
+  /** Objects the characters touch or overlap. */
+  keepObjects: string;
 }
 
 export const pageDraftSchema = {
@@ -174,8 +192,9 @@ export const pageDraftSchema = {
         required: ['text', 'box'],
       },
     },
+    keepObjects: { type: 'STRING' },
   },
-  required: ['scenePrompt', 'cast', 'texts'],
+  required: ['scenePrompt', 'cast', 'texts', 'keepObjects'],
 };
 
 export function pageDraftPrompt(book: Book, page: Page): string {
@@ -197,6 +216,7 @@ export function pageDraftPrompt(book: Book, page: Page): string {
     '  - clothing: exactly what they wear in THIS picture, judged only from this picture, never from other pages: each visible garment with its exact colour (e.g. off-white, not light blue, when it is off-white), its pattern ("plain" when there is none) and fabric. Empty if not visible.',
     '  - box: the bounding box around them (the whole figure, all of them if shown more than once) as [ymin, xmin, ymax, xmax] on a 0–1000 grid. null if not visible.',
     '- texts: every block of words printed in the image itself: story text in a speech bubble or caption panel, a title, words on a sign or book cover. One entry per block: text (its words, as printed) and box (around all its letters and its bubble or panel) as [ymin, xmin, ymax, xmax] on a 0–1000 grid. Many picture books print the story text inside the illustration, so look carefully. An empty list only if there are no words at all.',
+    '- keepObjects: the objects a character touches, holds, sits on, leans on or overlaps in THIS picture, each named so it can be found and with what touches it, e.g. "the toy castle under the boy’s hands, the stool he sits on, the teacup in the girl’s hand". Empty if none.',
   ]
     .filter(Boolean)
     .join('\n');

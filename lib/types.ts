@@ -97,6 +97,11 @@ export interface Page {
    * blended. Found by Prepare with AI.
    */
   textBoxes?: Box[];
+  /**
+   * Objects the characters touch or overlap that must not move or change shape in a redraw, e.g.
+   * "the doll house under Noah's hands". Said in every page prompt; found by Prepare with AI.
+   */
+  keepObjects?: string;
 }
 
 export interface BookSettings {
