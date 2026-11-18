@@ -18,6 +18,9 @@ import {
   pasteRegion,
   personAreas,
   sceneDrift,
+  matchColours,
+  blendPeople,
+  type PersonArea,
   toJpeg,
   unionBox,
   unpad,
@@ -122,7 +125,11 @@ export async function drawPageStep({ book, read }: BookInput, index: number, art
   // Keep the rest outside the boxes; without that setting, still feather a close-up's edge.
   const kept = boxes.filter((b): b is Box => !!b);
   const people = book.settings.keepOutsideBox && kept.length;
-  const keep = people ? kept.flatMap((b) => personAreas(b, region.width, region.height)) : closeUp ? [EDGE_FEATHER] : [];
+  const persons: PersonArea[] = people ? kept.map((b) => {
+    const [head, body] = personAreas(b, region.width, region.height);
+    return { head, body };
+  }) : [];
+  const keep = people ? persons.flatMap((p) => [p.head, p.body]) : closeUp ? [EDGE_FEATHER] : [];
   const before = await sharp(original).extract(region).png().toBuffer();
 
   // The model sometimes ignores "same framing" and zooms in or redraws the room (Noah & Lina,
@@ -146,7 +153,11 @@ export async function drawPageStep({ book, read }: BookInput, index: number, art
   }
 
   if (!keep.length) return { image: await toJpeg(await keepText(page, edited, read)), calls };
-  const after = await blendInBox(before, edited, keep, region.width, region.height, people ? 0 : undefined, people ? 'out' : 'in');
+  // People: the AI's colour cast undone; then the head's changes and the body's bare skin only
+  // (no halo, and a repainted garment never reaches the page).
+  const after = people
+    ? await blendPeople(before, await matchColours(before, edited, keep), persons, region.width, region.height)
+    : await blendInBox(before, edited, keep, region.width, region.height, undefined, 'in');
   return { image: await toJpeg(await keepText(page, closeUp ? await pasteRegion(original, after, region) : after, read)), calls };
 }
 
@@ -172,10 +183,16 @@ export async function touchUpPageStep({ book, read }: BookInput, index: number, 
   const edited = await unpad(answer, base.crop, region.width, region.height);
 
   const people = book.settings.keepOutsideBox && boxes.length;
-  const keep = people ? boxes.flatMap((b) => personAreas(b, region.width, region.height)) : closeUp ? [EDGE_FEATHER] : [];
+  const persons: PersonArea[] = people ? boxes.map((b) => {
+    const [head, body] = personAreas(b, region.width, region.height);
+    return { head, body };
+  }) : [];
+  const keep = people ? persons.flatMap((p) => [p.head, p.body]) : closeUp ? [EDGE_FEATHER] : [];
   if (!keep.length) return toJpeg(await keepText(page, edited, read));
   const before = await sharp(current).extract(region).png().toBuffer();
-  const after = await blendInBox(before, edited, keep, region.width, region.height, people ? 0 : undefined, people ? 'out' : 'in');
+  const after = people
+    ? await blendPeople(before, await matchColours(before, edited, keep), persons, region.width, region.height)
+    : await blendInBox(before, edited, keep, region.width, region.height, undefined, 'in');
   return toJpeg(await keepText(page, closeUp ? await pasteRegion(current, after, region) : after, read));
 }
 
