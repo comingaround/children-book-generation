@@ -39,7 +39,9 @@ export function MakeBook({ books: published, examples, samples }: { books: Book[
   const [adding, setAdding] = useState<string | null>(null);
   const [request, setRequest] = useState<{ n: number; gender: Gender } | null>(null);
   /** Pages with several people: one image for everyone, or one per character. */
-  const [together, setTogether] = useState(false);
+  // All at once by default: one call on the original keeps the page closest to it (one by one
+  // repaints the shared close-up once per person, and the drift adds up).
+  const [together, setTogether] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -205,8 +207,8 @@ export function MakeBook({ books: published, examples, samples }: { books: Book[
                 <TogetherSwitch className={styles.mode} together={together} onChange={setTogether} />
                 <span className={ui.help}>
                   {together
-                    ? 'One image per page for everyone: cheaper and faster, but each face is smaller in the AI’s view and faces can get mixed up.'
-                    : 'One image per character: each face gets its own close-up. Best detail, costs more.'}
+                    ? 'One image per page for everyone: the page stays closest to the original, and it is cheaper and faster.'
+                    : 'One image per character, each drawn on top of the last: use it only if faces get mixed up. The page drifts a little more from the original, and it costs more.'}
                 </span>
               </div>
             )}

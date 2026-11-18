@@ -143,7 +143,7 @@ const textCast = (run: Run, people: Person[]): TextCast[] =>
  * `together`: every character on a page in one image call instead of one call each.
  * `preview`: a customer's free preview, protected from saving until they order the full book.
  */
-export async function createRun(book: Book, assignments: Assignment[], pageIndexes: number[], reuseDrawings: boolean, together = false, preview = false): Promise<Run> {
+export async function createRun(book: Book, assignments: Assignment[], pageIndexes: number[], reuseDrawings: boolean, together = true, preview = false): Promise<Run> {
   if (!assignments.length) throw new Error('Choose a person for at least one character');
   if (!pageIndexes.length) throw new Error('None of these characters are on any page yet');
   const people = await Promise.all(assignments.map((a) => requirePerson(a.personId)));
