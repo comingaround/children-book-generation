@@ -90,6 +90,13 @@ const keepObjectsLine = (page: Page) =>
 const expressionLine = (expression: string, refs: string) =>
   `Their facial expression comes only from image 1, this page's own character: where the eyes look, how open they are, the eyebrows and the mouth exactly as there${expression ? ` (${expression})` : ''}. ${refs} show who they are, not how they feel: ignore the smile and expression in them.`;
 
+/**
+ * Colour: a page once came back a little redder than the original. Every page prompt (and the
+ * version edit) says the palette stays exactly the book's.
+ */
+const KEEP_COLOURS =
+  'Keep the colours exactly as in image 1: the same hues, saturation, brightness, contrast, warmth and white balance everywhere, with no colour cast, tint, filter or extra glow. Clothing, objects, background and light keep their exact colours; the only colours that change are the new people’s skin, hair and eyes.';
+
 const correction = (fix: string | null) => (fix ? `A correction for this version, which takes priority over anything above: ${fix}` : '');
 
 /** The lines every page prompt ends with. */
@@ -97,13 +104,14 @@ const closingLines = (book: Book, page: Page, fix: string | null) => [
   styleLine(book),
   'Everything else must stay identical to image 1: every other character, the background, objects, composition, framing and colours. If a changed character appears more than once, change every appearance.',
   keepObjectsLine(page),
+  KEEP_COLOURS,
   // Some books print their text into the art: a model once rewrote "Noah and Lina" there with a person's name.
   page.kind === 'cover'
     ? 'Keep any title lettering exactly as it is, letter for letter.'
     : 'Keep any text already in image 1 (speech bubbles, captions, signs) exactly as it is, letter for letter: never change a name in it. Do not add any new text, letters or signatures.',
   page.scenePrompt.trim() ? `About this scene: ${page.scenePrompt.trim()}` : '',
   correction(fix),
-  'Return the whole image at the same framing as image 1.',
+  'Return the whole image at exactly the same framing as image 1: do not zoom in or out, crop, reframe or move the camera. Every wall, floor, piece of furniture and object outside the people stays at the same position and size in the picture.',
 ];
 
 /**

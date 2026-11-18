@@ -137,6 +137,30 @@ export function personAreas(box: Box, width: number, height: number): Box[] {
   ];
 }
 
+/**
+ * How far the AI moved the scene: the mean grey-level difference between the original and the
+ * AI's answer outside `areas` (the people, % of the region), both shrunk to 96 px and blurred, so
+ * texture and brushwork don't count but a zoom, a reframe or a redrawn room does. null when too
+ * little of the picture is outside the people to judge (a close-up of faces).
+ */
+export async function sceneDrift(original: Buffer, answer: Buffer, areas: Box[]): Promise<number | null> {
+  const S = 96;
+  const grey = (b: Buffer) => sharp(b).resize(S, S, { fit: 'fill' }).greyscale().blur(1.5).raw().toBuffer();
+  const [a, b] = await Promise.all([grey(original), grey(answer)]);
+  let sum = 0;
+  let n = 0;
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const px = ((x + 0.5) / S) * 100;
+      const py = ((y + 0.5) / S) * 100;
+      if (areas.some((r) => px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h)) continue;
+      sum += Math.abs(a[y * S + x] - b[y * S + x]);
+      n++;
+    }
+  }
+  return n < S * S * 0.12 ? null : sum / n;
+}
+
 /** The smallest box around several boxes. */
 export function unionBox(boxes: Box[]): Box {
   const x = Math.min(...boxes.map((b) => b.x));

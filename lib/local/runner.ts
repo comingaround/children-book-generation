@@ -1,4 +1,4 @@
-import { ApiError, api, apiBlob, HOSTED_DEMO, UPLOAD_PICTURES } from '../client';
+import { ApiError, api, apiBlob, apiImage, HOSTED_DEMO, UPLOAD_PICTURES } from '../client';
 import { textChanges, type TextCast } from '../text';
 import {
   canDrawTogether,
@@ -312,7 +312,7 @@ interface Member {
 }
 
 /** One image call on a page: `group` replaced on `art` (null = the book's own art). */
-async function drawOnPage(book: Book, page: Page, art: Blob | null, group: Member[], fix: string | null, fixFor: string | null): Promise<Blob> {
+async function drawOnPage(book: Book, page: Page, art: Blob | null, group: Member[], fix: string | null, fixFor: string | null): Promise<{ blob: Blob; calls: number }> {
   const form = new FormData();
   const spec = await bookSpec(book, form, art ? [] : [page.image]);
   form.set('spec', JSON.stringify({ ...spec, index: page.index, members: group.map((m) => ({ characterId: m.characterId, person: personFacts(m.person) })), fix, fixFor }));
@@ -321,7 +321,7 @@ async function drawOnPage(book: Book, page: Page, art: Blob | null, group: Membe
     form.set(`drawing-${n}`, await uploadable(await readFile(m.drawing)));
   }
   if (art) form.set('art', await uploadable(art));
-  return apiBlob('/api/ai/page', { method: 'POST', body: form });
+  return apiImage('/api/ai/page', { method: 'POST', body: form });
 }
 
 /**
@@ -356,8 +356,9 @@ async function drawPage(runId: string, index: number): Promise<void> {
       const label = together ? '' : members.length > 1 ? `${group[0].label}: ` : '';
       await checkUploadLimit(book);
       await say(together ? 'Drawing everyone at once…' : `${label}drawing…`);
-      art = await drawOnPage(book, page, art, group, fix, fixFor);
-      await mutate(runId, (r) => void r.images++);
+      const drawn = await drawOnPage(book, page, art, group, fix, fixFor);
+      art = drawn.blob;
+      await mutate(runId, (r) => void (r.images += drawn.calls));
     }
 
     const file = await saveFile(localKey(`runs/${runId}/pages/${String(index).padStart(2, '0')}-${Date.now().toString(36)}.jpg`), art!);

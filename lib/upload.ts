@@ -21,4 +21,6 @@ export async function fileOf(form: FormData, field: string, what: string): Promi
   return Buffer.from(await file.arrayBuffer());
 }
 
-export const jpegResponse = (jpeg: Buffer) => new Response(new Uint8Array(jpeg), { headers: { 'content-type': 'image/jpeg' } });
+/** `calls`: image calls it took (an answer that moved the scene is drawn again), for the cost counter. */
+export const jpegResponse = (jpeg: Buffer, calls = 1) =>
+  new Response(new Uint8Array(jpeg), { headers: { 'content-type': 'image/jpeg', 'x-image-calls': String(calls) } });

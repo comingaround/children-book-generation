@@ -26,6 +26,12 @@ async function send(url: string, init?: RequestInit & { json?: unknown }): Promi
 /** fetch + JSON; a non-2xx answer throws an ApiError with the server's message. */
 export const api = async <T>(url: string, init?: RequestInit & { json?: unknown }): Promise<T> => (await send(url, init)).json() as Promise<T>;
 
+/** fetch for an image answer, with how many image calls it took (header x-image-calls, default 1). */
+export const apiImage = async (url: string, init?: RequestInit & { json?: unknown }): Promise<{ blob: Blob; calls: number }> => {
+  const res = await send(url, init);
+  return { blob: await res.blob(), calls: Number(res.headers.get('x-image-calls')) || 1 };
+};
+
 /** fetch for a file answer (an image, a PDF). */
 export const apiBlob = async (url: string, init?: RequestInit & { json?: unknown }): Promise<Blob> => (await send(url, init)).blob();
 

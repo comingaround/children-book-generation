@@ -17,6 +17,7 @@ import {
   padToRatio,
   pasteRegion,
   personAreas,
+  sceneDrift,
   toJpeg,
   unionBox,
   unpad,
@@ -81,7 +82,16 @@ export interface PageMember {
  * are big in the model's view; the answer goes back into the page with a soft edge.
  * `fix` is for everyone on the page, or (`fixFor`) for one character only.
  */
-export async function drawPageStep({ book, read }: BookInput, index: number, art: Buffer | null, members: PageMember[], fix: string | null, fixFor: string | null): Promise<Buffer> {
+/** Image calls per page: the first and up to two redraws of an answer that moved the scene. */
+const DRAW_TRIES = 3;
+/**
+ * Mean grey difference (0–255, 96 px, blurred) outside the people above which an answer counts as
+ * a reframe. A faithful answer copies the background almost exactly (a few levels); a zoom or a
+ * redrawn room moves every edge. Logged on every page, to tune.
+ */
+const SCENE_DRIFT_LIMIT = Number(process.env.SCENE_DRIFT_LIMIT) || 9;
+
+export async function drawPageStep({ book, read }: BookInput, index: number, art: Buffer | null, members: PageMember[], fix: string | null, fixFor: string | null): Promise<{ image: Buffer; calls: number }> {
   const page = pageOf(book, index);
   if (!members.length) throw new HttpError(400, 'No one to draw on this page');
   if (members.length > 1 && !canDrawTogether(book, page, members.map((m) => m.characterId))) throw new HttpError(400, 'These characters cannot be drawn at once on this page');
@@ -107,17 +117,37 @@ export async function drawPageStep({ book, read }: BookInput, index: number, art
   // 4K for pages: drawn all at once, each face is small in the model's view; 4x the pixels keeps
   // likeness, curls and glasses (GEMINI_PAGE_IMAGE_SIZE to change it).
   const imageSize = (process.env.GEMINI_PAGE_IMAGE_SIZE as '1K' | '2K' | '4K' | undefined) ?? '4K';
-  const answer = await generateImage([padded.image, ...refs], pagePrompt(book, page, prompted, closeUp, fixFor ? null : fix), { aspectRatio: padded.ratio, imageSize });
-  const edited = await unpad(answer, padded.crop, region.width, region.height);
+  const prompt = pagePrompt(book, page, prompted, closeUp, fixFor ? null : fix);
 
   // Keep the rest outside the boxes; without that setting, still feather a close-up's edge.
   const kept = boxes.filter((b): b is Box => !!b);
   const people = book.settings.keepOutsideBox && kept.length;
   const keep = people ? kept.flatMap((b) => personAreas(b, region.width, region.height)) : closeUp ? [EDGE_FEATHER] : [];
-  if (!keep.length) return toJpeg(await keepText(page, edited, read));
   const before = await sharp(original).extract(region).png().toBuffer();
+
+  // The model sometimes ignores "same framing" and zooms in or redraws the room (Noah & Lina,
+  // Page 2): its answer is then off everywhere, not only on the people. Such an answer is thrown
+  // away and drawn again; after DRAW_TRIES the page fails rather than show a broken picture.
+  let edited: Buffer | null = null;
+  let calls = 0;
+  for (let tries = 1; tries <= DRAW_TRIES; tries++) {
+    calls++;
+    const answer = await generateImage([padded.image, ...refs], prompt, { aspectRatio: padded.ratio, imageSize });
+    const candidate = await unpad(answer, padded.crop, region.width, region.height);
+    const drift = people ? await sceneDrift(before, candidate, keep) : null;
+    console.log(`[draw] page ${index} try ${tries}: scene drift ${drift === null ? 'n/a (close-up)' : drift.toFixed(1)}`);
+    if (drift === null || drift <= SCENE_DRIFT_LIMIT) {
+      edited = candidate;
+      break;
+    }
+  }
+  if (!edited) {
+    throw new HttpError(502, `The AI kept redrawing the whole scene instead of only the people (${DRAW_TRIES} tries). Try again in a moment.`);
+  }
+
+  if (!keep.length) return { image: await toJpeg(await keepText(page, edited, read)), calls };
   const after = await blendInBox(before, edited, keep, region.width, region.height, people ? 0 : undefined, people ? 'out' : 'in');
-  return toJpeg(await keepText(page, closeUp ? await pasteRegion(original, after, region) : after, read));
+  return { image: await toJpeg(await keepText(page, closeUp ? await pasteRegion(original, after, region) : after, read)), calls };
 }
 
 /**
