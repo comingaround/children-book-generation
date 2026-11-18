@@ -143,6 +143,8 @@ export interface CastDraft {
 export interface PageDraft {
   scenePrompt: string;
   cast: CastDraft[];
+  /** Text printed in the picture: its words and [ymin, xmin, ymax, xmax] on a 0–1000 grid. */
+  texts: { text: string; box: number[] }[];
 }
 
 export const pageDraftSchema = {
@@ -164,8 +166,16 @@ export const pageDraftSchema = {
         required: ['id', 'present', 'hint', 'pose', 'clothing', 'box'],
       },
     },
+    texts: {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: { text: { type: 'STRING' }, box: { type: 'ARRAY', items: { type: 'INTEGER' } } },
+        required: ['text', 'box'],
+      },
+    },
   },
-  required: ['scenePrompt', 'cast'],
+  required: ['scenePrompt', 'cast', 'texts'],
 };
 
 export function pageDraftPrompt(book: Book, page: Page): string {
@@ -186,6 +196,7 @@ export function pageDraftPrompt(book: Book, page: Page): string {
     '  - pose: their pose and direction in one short phrase. Always start by saying what the viewer sees of them: their face (facing the viewer), their back, their profile (facing left or right), or a three-quarter view. Then the body position, where they look and what the hands do. Empty if not visible.',
     '  - clothing: exactly what they wear in THIS picture, judged only from this picture, never from other pages: each visible garment with its exact colour (e.g. off-white, not light blue, when it is off-white), its pattern ("plain" when there is none) and fabric. Empty if not visible.',
     '  - box: the bounding box around them (the whole figure, all of them if shown more than once) as [ymin, xmin, ymax, xmax] on a 0–1000 grid. null if not visible.',
+    '- texts: every block of words printed in the image itself: story text in a speech bubble or caption panel, a title, words on a sign or book cover. One entry per block: text (its words, as printed) and box (around all its letters and its bubble or panel) as [ymin, xmin, ymax, xmax] on a 0–1000 grid. Many picture books print the story text inside the illustration, so look carefully. An empty list only if there are no words at all.',
   ]
     .filter(Boolean)
     .join('\n');

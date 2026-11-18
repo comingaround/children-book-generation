@@ -175,7 +175,7 @@ export function BookEditor({ initial }: { initial: Book }) {
    * `onlyMissing` (Prepare all) fills only characters and fields not set yet, so edits survive.
    */
   async function draftPage(target: Page, characters = book.characters, settings = book.settings, onlyMissing = false) {
-    const draft = await askDraft<{ scenePrompt: string; cast: (Omit<CastDraft, 'box'> & { box: Box | null })[] }>({ index: target.index, characters, settings });
+    const draft = await askDraft<{ scenePrompt: string; cast: (Omit<CastDraft, 'box'> & { box: Box | null })[]; textBoxes: Box[] }>({ index: target.index, characters, settings });
     change((b) => ({
       ...b,
       pages: b.pages.map((p) => {
@@ -190,7 +190,8 @@ export function BookEditor({ initial }: { initial: Book }) {
               : { ...found, box: old?.box ?? found.box };
         }
         const scenePrompt = onlyMissing ? p.scenePrompt || draft.scenePrompt : draft.scenePrompt || p.scenePrompt;
-        return { ...p, scenePrompt, cast: nextCast };
+        const textBoxes = onlyMissing && p.textBoxes?.length ? p.textBoxes : draft.textBoxes;
+        return { ...p, scenePrompt, cast: nextCast, textBoxes };
       }),
     }));
   }
@@ -221,7 +222,8 @@ export function BookEditor({ initial }: { initial: Book }) {
           if (p.kind === 'skip') return false;
           const present = characters.filter((c) => p.cast[c.id]?.present);
           const unknown = characters.some((c) => !p.cast[c.id]);
-          return !p.scenePrompt || unknown || present.some((c) => !p.cast[c.id].box || !p.cast[c.id].pose);
+          // textBoxes undefined = never checked for printed text (an empty list = checked, none).
+          return !p.scenePrompt || unknown || p.textBoxes === undefined || present.some((c) => !p.cast[c.id].box || !p.cast[c.id].pose || !p.cast[c.id].clothing);
         });
         for (const [i, p] of todo.entries()) {
           setProgress(`Page ${i + 1} of ${todo.length}…`);
@@ -245,7 +247,9 @@ export function BookEditor({ initial }: { initial: Book }) {
   const editable = page.kind !== 'skip' && !!character && !!cast?.present;
   const others = presentOn(book, page)
     .filter((c) => c.id !== character?.id && page.cast[c.id].box)
-    .map((c) => ({ label: c.label, box: page.cast[c.id].box! }));
+    .map((c) => ({ label: c.label, box: page.cast[c.id].box! }))
+    // Printed text: kept from the original on every redraw.
+    .concat((page.textBoxes ?? []).map((box) => ({ label: 'Text (kept)', box })));
 
   return (
     <main className={styles.layout}>

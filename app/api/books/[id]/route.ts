@@ -9,7 +9,7 @@ export async function GET(_req: Request, { params }: Ctx) {
   return respond('book', { status: 500, message: 'Could not load the book' }, async () => Response.json(await requireBook((await params).id)));
 }
 
-/** Saves the editable parts: title, cast, settings and each page's type, scene and cast. Images and text stay as imported. */
+/** Saves the editable parts: title, cast, settings and each page's type, scene, cast and text areas. Images and text stay as imported. */
 export async function PUT(req: Request, { params }: Ctx) {
   return respond('book:save', { status: 500, message: 'Could not save the book' }, async () => {
     localOnly();
@@ -24,6 +24,7 @@ export async function PUT(req: Request, { params }: Ctx) {
       if (!page) throw new HttpError(400, `No page ${edit.index}`);
       page.kind = edit.kind ?? page.kind;
       page.scenePrompt = edit.scenePrompt ?? page.scenePrompt;
+      if (Array.isArray(edit.textBoxes)) page.textBoxes = edit.textBoxes;
       // Drop entries for characters that were removed from the book.
       if (edit.cast) page.cast = Object.fromEntries(Object.entries(edit.cast).filter(([id]) => ids.has(id)));
     }

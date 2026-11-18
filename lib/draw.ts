@@ -109,10 +109,10 @@ export async function drawPageStep({ book, read }: BookInput, index: number, art
   // Keep the rest outside the boxes; without that setting, still feather a close-up's edge.
   const kept = boxes.filter((b): b is Box => !!b);
   const keep = book.settings.keepOutsideBox && kept.length ? kept : closeUp ? [EDGE_FEATHER] : [];
-  if (!keep.length) return toJpeg(edited);
+  if (!keep.length) return toJpeg(await keepText(page, edited, read));
   const before = await sharp(original).extract(region).png().toBuffer();
   const after = await blendInBox(before, edited, keep, region.width, region.height);
-  return toJpeg(closeUp ? await pasteRegion(original, after, region) : after);
+  return toJpeg(await keepText(page, closeUp ? await pasteRegion(original, after, region) : after, read));
 }
 
 /**
@@ -137,10 +137,36 @@ export async function touchUpPageStep({ book, read }: BookInput, index: number, 
   const edited = await unpad(answer, base.crop, region.width, region.height);
 
   const keep = book.settings.keepOutsideBox && boxes.length ? boxes : closeUp ? [EDGE_FEATHER] : [];
-  if (!keep.length) return toJpeg(edited);
+  if (!keep.length) return toJpeg(await keepText(page, edited, read));
   const before = await sharp(current).extract(region).png().toBuffer();
   const after = await blendInBox(before, edited, keep, region.width, region.height);
-  return toJpeg(closeUp ? await pasteRegion(current, after, region) : after);
+  return toJpeg(await keepText(page, closeUp ? await pasteRegion(current, after, region) : after, read));
+}
+
+/**
+ * Puts the original art back inside the page's text areas (page.textBoxes): text printed in the
+ * picture is never redrawn or blended. Without this, a character box overlapping a speech bubble
+ * mixed the AI's slightly shifted lettering with the original's, a ghosted double.
+ */
+async function keepText(page: Page, result: Buffer, read: BookInput['read']): Promise<Buffer> {
+  // Text written across someone's head (page 14's "The End" over the children's faces) can't be
+  // kept: the original faces would come back with it. That text is left to the redraw.
+  const heads = Object.values(page.cast)
+    .filter((c) => c.present && c.box)
+    .map((c) => ({ ...c.box!, h: c.box!.h * 0.45 }));
+  const overlaps = (a: Box, b: Box) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  const textBoxes = (page.textBoxes ?? []).filter((t) => !heads.some((h) => overlaps(t, h)));
+  if (!textBoxes.length) return result;
+  const original = await sharp(await read(page.image)).resize(page.imageWidth, page.imageHeight).png().toBuffer();
+  const sized = await sharp(result).resize(page.imageWidth, page.imageHeight).png().toBuffer();
+  // The AI's text boxes can sit tight on the letters, and the blend softens the edge inwards: pad them.
+  const pad = 3;
+  const padded = textBoxes.map((t) => {
+    const x = Math.max(0, t.x - pad);
+    const y = Math.max(0, t.y - pad);
+    return { x, y, w: Math.min(100, t.x + t.w + pad) - x, h: Math.min(100, t.y + t.h + pad) - y };
+  });
+  return blendInBox(sized, original, padded, page.imageWidth, page.imageHeight);
 }
 
 // ---- he/she in the text ------------------------------------------------------------------

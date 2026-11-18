@@ -52,6 +52,11 @@ export async function POST(req: Request) {
         }
         return { ...c, box };
       });
-    return Response.json({ scenePrompt: draft.scenePrompt, cast });
+    const textBoxes = (draft.texts ?? []).flatMap(({ box: t }) => {
+      if (t?.length !== 4) return [];
+      const [ymin, xmin, ymax, xmax] = t.map((n) => Math.min(Math.max(n / 10, 0), 100));
+      return xmax > xmin && ymax > ymin ? [{ x: r(xmin), y: r(ymin), w: r(xmax - xmin), h: r(ymax - ymin) }] : [];
+    });
+    return Response.json({ scenePrompt: draft.scenePrompt, cast, textBoxes });
   });
 }

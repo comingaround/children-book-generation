@@ -91,6 +91,12 @@ export interface Page {
   lines: TextLine[];
   /** PDF lines left out of the story (ads, markup); the PDF export removes them. */
   removed?: string[];
+  /**
+   * Text printed inside the illustration (speech bubbles, captions, a cover title), in percent of
+   * the art. Every redraw puts the original pixels back here, so printed text is never redrawn or
+   * blended. Found by Prepare with AI.
+   */
+  textBoxes?: Box[];
 }
 
 export interface BookSettings {
