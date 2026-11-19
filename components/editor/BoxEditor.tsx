@@ -81,8 +81,8 @@ export function BoxEditor({ box, label, onChange, others = [] }: Props) {
       onPointerUp={end}
       onPointerCancel={end}
     >
-      {others.map((o) => (
-        <div key={o.label} className={styles.other} style={at(o.box)}>
+      {others.map((o, i) => (
+        <div key={`${o.label}-${i}`} className={styles.other} style={at(o.box)}>
           <span className={styles.otherLabel}>{o.label}</span>
         </div>
       ))}
