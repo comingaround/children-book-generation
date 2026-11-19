@@ -137,184 +137,6 @@ export function personAreas(box: Box, width: number, height: number): Box[] {
   ];
 }
 
-/**
- * How far the AI moved the scene: the mean grey-level difference between the original and the
- * AI's answer outside `areas` (the people, % of the region), both shrunk to 96 px and blurred, so
- * texture and brushwork don't count but a zoom, a reframe or a redrawn room does. null when too
- * little of the picture is outside the people to judge (a close-up of faces).
- */
-export async function sceneDrift(original: Buffer, answer: Buffer, areas: Box[]): Promise<number | null> {
-  const S = 96;
-  const grey = (b: Buffer) => sharp(b).resize(S, S, { fit: 'fill' }).greyscale().blur(1.5).raw().toBuffer();
-  const [a, b] = await Promise.all([grey(original), grey(answer)]);
-  let sum = 0;
-  let n = 0;
-  for (let y = 0; y < S; y++) {
-    for (let x = 0; x < S; x++) {
-      const px = ((x + 0.5) / S) * 100;
-      const py = ((y + 0.5) / S) * 100;
-      if (areas.some((r) => px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h)) continue;
-      sum += Math.abs(a[y * S + x] - b[y * S + x]);
-      n++;
-    }
-  }
-  return n < S * S * 0.12 ? null : sum / n;
-}
-
-/** Pixels of `areas` (% of the image) on an S x S grid: true = inside. */
-function areaGrid(areas: Box[], S: number): Uint8Array {
-  const grid = new Uint8Array(S * S);
-  for (let y = 0; y < S; y++) {
-    for (let x = 0; x < S; x++) {
-      const px = ((x + 0.5) / S) * 100;
-      const py = ((y + 0.5) / S) * 100;
-      if (areas.some((r) => px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h)) grid[y * S + x] = 1;
-    }
-  }
-  return grid;
-}
-
-/**
- * Removes the AI's colour cast: its answer came back a little redder (red +2–3, green −2) around
- * the people, a halo where it was pasted. The background outside `areas` should be identical in
- * both, so each channel's shift (and contrast, clamped to ±10%) is measured there and undone on
- * the whole answer, faces included. Unchanged when too little background is visible to measure.
- */
-export async function matchColours(original: Buffer, answer: Buffer, areas: Box[]): Promise<Buffer> {
-  const S = 256;
-  const small = (b: Buffer) => sharp(b).resize(S, S, { fit: 'fill' }).removeAlpha().raw().toBuffer();
-  const [o, a] = await Promise.all([small(original), small(answer)]);
-  const inside = areaGrid(areas, S);
-  const stats = [0, 1, 2].map(() => ({ so: 0, sa: 0, qo: 0, qa: 0 }));
-  let n = 0;
-  for (let i = 0; i < S * S; i++) {
-    if (inside[i]) continue;
-    n++;
-    for (let c = 0; c < 3; c++) {
-      const vo = o[i * 3 + c];
-      const va = a[i * 3 + c];
-      stats[c].so += vo;
-      stats[c].sa += va;
-      stats[c].qo += vo * vo;
-      stats[c].qa += va * va;
-    }
-  }
-  if (n < S * S * 0.12) return answer;
-  const gain: number[] = [];
-  const offset: number[] = [];
-  for (const { so, sa, qo, qa } of stats) {
-    const mo = so / n;
-    const ma = sa / n;
-    const sdo = Math.sqrt(Math.max(qo / n - mo * mo, 1));
-    const sda = Math.sqrt(Math.max(qa / n - ma * ma, 1));
-    const g = Math.min(1.1, Math.max(0.9, sdo / sda));
-    gain.push(g);
-    offset.push(mo - ma * g);
-  }
-  return sharp(answer).removeAlpha().linear(gain, offset).png().toBuffer();
-}
-
-/** One person on a page: the head part (all changes taken) and the body part (bare skin only). */
-export interface PersonArea {
-  head: Box;
-  body: Box;
-}
-
-/** A pixel that can be skin: warm (red over green over blue), not too dark or grey. */
-const skinLike = (r: number, g: number, b: number) => r > 70 && r >= g && g >= b - 8 && r - b > 18;
-
-/** The median skin colour among skin-like pixels inside `grid`, or null if too few. */
-function skinTone(px: Buffer, grid: Uint8Array): [number, number, number] | null {
-  const rs: number[] = [];
-  const gs: number[] = [];
-  const bs: number[] = [];
-  for (let i = 0; i < grid.length; i++) {
-    if (!grid[i]) continue;
-    const r = px[i * 3];
-    const g = px[i * 3 + 1];
-    const b = px[i * 3 + 2];
-    if (!skinLike(r, g, b)) continue;
-    rs.push(r);
-    gs.push(g);
-    bs.push(b);
-  }
-  if (rs.length < 30) return null;
-  const mid = (a: number[]) => a.sort((x, y) => x - y)[a.length >> 1];
-  return [mid(rs), mid(gs), mid(bs)];
-}
-
-/**
- * Pastes what the AI should change and nothing else. Head part: every pixel the AI changed (new
- * face, hair, skin, glasses), with a margin. Body part: bare skin only (hands, arms), recognised by
- * each person's own tone (the new face's skin in the answer, the old face's skin in the original),
- * taken where it is skin in either picture so no sliver of the old skin is left around new
- * fingers. Clothes and objects on the body always stay the book's own (the AI once repainted a
- * pyjama pattern). Soft edges everywhere. Run matchColours first, or the cast counts as a change.
- */
-export async function blendPeople(original: Buffer, edited: Buffer, people: PersonArea[], width: number, height: number): Promise<Buffer> {
-  const S = 512;
-  const small = (b: Buffer) => sharp(b).resize(S, S, { fit: 'fill' }).removeAlpha().blur(1).raw().toBuffer();
-  const [o, e] = await Promise.all([small(original), small(edited)]);
-  const allowed = areaGrid(people.flatMap((p) => [p.head, p.body]), S);
-  const THRESHOLD = 20;
-  const SKIN_DISTANCE = 42;
-  const near = (px: Buffer, i: number, tone: [number, number, number] | null) =>
-    !!tone && skinLike(px[i * 3], px[i * 3 + 1], px[i * 3 + 2]) && Math.hypot(px[i * 3] - tone[0], px[i * 3 + 1] - tone[1], px[i * 3 + 2] - tone[2]) < SKIN_DISTANCE;
-
-  let take = new Uint8Array(S * S);
-  for (const person of people) {
-    const head = areaGrid([person.head], S);
-    const body = areaGrid([person.body], S);
-    const newSkin = skinTone(e, head);
-    const oldSkin = skinTone(o, head);
-    for (let i = 0; i < S * S; i++) {
-      if (head[i]) {
-        const d = Math.max(Math.abs(o[i * 3] - e[i * 3]), Math.abs(o[i * 3 + 1] - e[i * 3 + 1]), Math.abs(o[i * 3 + 2] - e[i * 3 + 2]));
-        if (d > THRESHOLD) take[i] = 1;
-      } else if (body[i] && (near(e, i, newSkin) || near(o, i, oldSkin))) {
-        take[i] = 1;
-      }
-    }
-  }
-  // A margin around what is taken, so hair tips, glasses rims and finger edges are never nibbled.
-  const R = Math.max(3, Math.round(S * 0.008));
-  for (const horizontal of [true, false]) {
-    const next = new Uint8Array(S * S);
-    for (let y = 0; y < S; y++) {
-      for (let x = 0; x < S; x++) {
-        if (!take[y * S + x]) continue;
-        for (let k = -R; k <= R; k++) {
-          const xx = horizontal ? x + k : x;
-          const yy = horizontal ? y : y + k;
-          if (xx >= 0 && xx < S && yy >= 0 && yy < S && allowed[yy * S + xx]) next[yy * S + xx] = 1;
-        }
-      }
-    }
-    take = next;
-  }
-  const alpha = Buffer.alloc(S * S);
-  for (let i = 0; i < S * S; i++) alpha[i] = take[i] ? 255 : 0;
-  const feather = Math.max(2, Math.round(Math.min(width, height) * 0.005));
-  const mask = await sharp(alpha, { raw: { width: S, height: S, channels: 1 } })
-    .resize(width, height, { fit: 'fill', kernel: 'cubic' })
-    .blur(feather)
-    .toColourspace('b-w')
-    .raw()
-    .toBuffer();
-  // RGBA built by hand: joinChannel with a raw mask silently dropped it (3 channels came back), so
-  // the whole AI close-up was pasted instead of the cut-out.
-  const rgb = await sharp(edited).resize(width, height, { fit: 'fill' }).removeAlpha().raw().toBuffer();
-  const rgba = Buffer.alloc(width * height * 4);
-  for (let i = 0; i < width * height; i++) {
-    rgba[i * 4] = rgb[i * 3];
-    rgba[i * 4 + 1] = rgb[i * 3 + 1];
-    rgba[i * 4 + 2] = rgb[i * 3 + 2];
-    rgba[i * 4 + 3] = mask[i];
-  }
-  const cutout = await sharp(rgba, { raw: { width, height, channels: 4 } }).png().toBuffer();
-  return sharp(original).composite([{ input: cutout }]).toBuffer();
-}
-
 /** The smallest box around several boxes. */
 export function unionBox(boxes: Box[]): Box {
   const x = Math.min(...boxes.map((b) => b.x));
@@ -414,4 +236,102 @@ export async function upscaleTo(input: Buffer, width: number): Promise<Buffer | 
   const meta = await sharp(input).metadata();
   if (!meta.width || meta.width >= width) return null;
   return sharp(input).resize({ width, kernel: 'lanczos3' }).jpeg({ quality: 92, mozjpeg: true }).toBuffer();
+}
+
+/** Pixels of `areas` (% of the image) on an S x S grid: 1 = inside. */
+function areaGrid(areas: Box[], S: number): Uint8Array {
+  const grid = new Uint8Array(S * S);
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const px = ((x + 0.5) / S) * 100;
+      const py = ((y + 0.5) / S) * 100;
+      if (areas.some((r) => px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h)) grid[y * S + x] = 1;
+    }
+  }
+  return grid;
+}
+
+/**
+ * Removes the AI's colour cast, the red halo around and on the people. Colour levels only: no
+ * shape, face or expression is touched. Two steps, both measured where the answer should match the
+ * original exactly:
+ *  1. the background outside `areas`: each channel's shift (and contrast, clamped to ±10%) is
+ *     undone on the whole answer;
+ *  2. each person's clothes (the lower part of their box, `bodies`): pixels the AI barely changed
+ *     (within 40 per channel) show the cast left on that person; each channel's median shift is
+ *     undone inside that person's areas, face included. Clamped to ±25; under 2 is noise.
+ * A step is skipped when too little is visible to measure.
+ */
+export async function removeCast(original: Buffer, answer: Buffer, areas: Box[], people: { areas: Box[]; body: Box }[]): Promise<Buffer> {
+  const meta = await sharp(answer).metadata();
+  const W = meta.width!;
+  const H = meta.height!;
+  const S = 256;
+  const small = (b: Buffer) => sharp(b).resize(S, S, { fit: 'fill' }).removeAlpha().raw().toBuffer();
+  const [o, a0] = await Promise.all([small(original), small(answer)]);
+
+  // 1 · background
+  const inside = areaGrid(areas, S);
+  const stats = [0, 1, 2].map(() => ({ so: 0, sa: 0, qo: 0, qa: 0 }));
+  let n = 0;
+  for (let i = 0; i < S * S; i++) {
+    if (inside[i]) continue;
+    n++;
+    for (let c = 0; c < 3; c++) {
+      const vo = o[i * 3 + c];
+      const va = a0[i * 3 + c];
+      stats[c].so += vo;
+      stats[c].sa += va;
+      stats[c].qo += vo * vo;
+      stats[c].qa += va * va;
+    }
+  }
+  let gain = [1, 1, 1];
+  let offset = [0, 0, 0];
+  if (n >= S * S * 0.12) {
+    gain = [];
+    offset = [];
+    for (const { so, sa, qo, qa } of stats) {
+      const mo = so / n;
+      const ma = sa / n;
+      const sdo = Math.sqrt(Math.max(qo / n - mo * mo, 1));
+      const sda = Math.sqrt(Math.max(qa / n - ma * ma, 1));
+      const g = Math.min(1.1, Math.max(0.9, sdo / sda));
+      gain.push(g);
+      offset.push(mo - ma * g);
+    }
+  }
+  const level = (v: number, c: number) => v * gain[c] + offset[c];
+
+  // 2 · each person, from their clothes
+  const casts = people.map((p) => {
+    const body = areaGrid([p.body], S);
+    const diffs: number[][] = [[], [], []];
+    for (let i = 0; i < S * S; i++) {
+      if (!body[i]) continue;
+      const d = [0, 1, 2].map((c) => level(a0[i * 3 + c], c) - o[i * 3 + c]);
+      if (Math.max(...d.map(Math.abs)) < 40) d.forEach((v, c) => diffs[c].push(v));
+    }
+    if (diffs[0].length < 100) return [0, 0, 0];
+    return diffs.map((list) => {
+      const m = list.sort((x, y) => x - y)[list.length >> 1];
+      return Math.abs(m) < 2 ? 0 : -Math.max(-25, Math.min(25, m));
+    });
+  });
+
+  const rgb = await sharp(answer).removeAlpha().raw().toBuffer();
+  const out = Buffer.alloc(W * H * 3);
+  const personAt = (px: number, py: number) =>
+    people.findIndex((p) => p.areas.some((r) => px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h));
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const k = personAt(((x + 0.5) / W) * 100, ((y + 0.5) / H) * 100);
+      const i = (y * W + x) * 3;
+      for (let c = 0; c < 3; c++) {
+        const v = level(rgb[i + c], c) + (k < 0 ? 0 : casts[k][c]);
+        out[i + c] = v < 0 ? 0 : v > 255 ? 255 : Math.round(v);
+      }
+    }
+  }
+  return sharp(out, { raw: { width: W, height: H, channels: 3 } }).png().toBuffer();
 }

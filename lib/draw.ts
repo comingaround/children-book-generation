@@ -17,10 +17,7 @@ import {
   padToRatio,
   pasteRegion,
   personAreas,
-  sceneDrift,
-  matchColours,
-  blendPeople,
-  type PersonArea,
+  removeCast,
   toJpeg,
   unionBox,
   unpad,
@@ -85,16 +82,7 @@ export interface PageMember {
  * are big in the model's view; the answer goes back into the page with a soft edge.
  * `fix` is for everyone on the page, or (`fixFor`) for one character only.
  */
-/** Image calls per page: the first and up to two redraws of an answer that moved the scene. */
-const DRAW_TRIES = 3;
-/**
- * Mean grey difference (0–255, 96 px, blurred) outside the people above which an answer counts as
- * a reframe. A faithful answer copies the background almost exactly (a few levels); a zoom or a
- * redrawn room moves every edge. Logged on every page, to tune.
- */
-const SCENE_DRIFT_LIMIT = Number(process.env.SCENE_DRIFT_LIMIT) || 9;
-
-export async function drawPageStep({ book, read }: BookInput, index: number, art: Buffer | null, members: PageMember[], fix: string | null, fixFor: string | null): Promise<{ image: Buffer; calls: number }> {
+export async function drawPageStep({ book, read }: BookInput, index: number, art: Buffer | null, members: PageMember[], fix: string | null, fixFor: string | null): Promise<Buffer> {
   const page = pageOf(book, index);
   if (!members.length) throw new HttpError(400, 'No one to draw on this page');
   if (members.length > 1 && !canDrawTogether(book, page, members.map((m) => m.characterId))) throw new HttpError(400, 'These characters cannot be drawn at once on this page');
@@ -120,45 +108,35 @@ export async function drawPageStep({ book, read }: BookInput, index: number, art
   // 4K for pages: drawn all at once, each face is small in the model's view; 4x the pixels keeps
   // likeness, curls and glasses (GEMINI_PAGE_IMAGE_SIZE to change it).
   const imageSize = (process.env.GEMINI_PAGE_IMAGE_SIZE as '1K' | '2K' | '4K' | undefined) ?? '4K';
-  const prompt = pagePrompt(book, page, prompted, closeUp, fixFor ? null : fix);
+  const answer = await generateImage([padded.image, ...refs], pagePrompt(book, page, prompted, closeUp, fixFor ? null : fix), { aspectRatio: padded.ratio, imageSize });
+  const edited = await unpad(answer, padded.crop, region.width, region.height);
 
   // Keep the rest outside the boxes; without that setting, still feather a close-up's edge.
   const kept = boxes.filter((b): b is Box => !!b);
   const people = book.settings.keepOutsideBox && kept.length;
-  const persons: PersonArea[] = people ? kept.map((b) => {
-    const [head, body] = personAreas(b, region.width, region.height);
-    return { head, body };
-  }) : [];
-  const keep = people ? persons.flatMap((p) => [p.head, p.body]) : closeUp ? [EDGE_FEATHER] : [];
+  const keep = people ? kept.flatMap((b) => personAreas(b, region.width, region.height)) : closeUp ? [EDGE_FEATHER] : [];
+  if (!keep.length) return toJpeg(await keepText(page, edited, read));
   const before = await sharp(original).extract(region).png().toBuffer();
-
-  // The model sometimes ignores "same framing" and zooms in or redraws the room (Noah & Lina,
-  // Page 2): its answer is then off everywhere, not only on the people. Such an answer is thrown
-  // away and drawn again; after DRAW_TRIES the page fails rather than show a broken picture.
-  let edited: Buffer | null = null;
-  let calls = 0;
-  for (let tries = 1; tries <= DRAW_TRIES; tries++) {
-    calls++;
-    const answer = await generateImage([padded.image, ...refs], prompt, { aspectRatio: padded.ratio, imageSize });
-    const candidate = await unpad(answer, padded.crop, region.width, region.height);
-    const drift = people ? await sceneDrift(before, candidate, keep) : null;
-    console.log(`[draw] page ${index} try ${tries}: scene drift ${drift === null ? 'n/a (close-up)' : drift.toFixed(1)}`);
-    if (drift === null || drift <= SCENE_DRIFT_LIMIT) {
-      edited = candidate;
-      break;
-    }
-  }
-  if (!edited) {
-    throw new HttpError(502, `The AI kept redrawing the whole scene instead of only the people (${DRAW_TRIES} tries). Try again in a moment.`);
-  }
-
-  if (!keep.length) return { image: await toJpeg(await keepText(page, edited, read)), calls };
-  // People: the AI's colour cast undone; then the head's changes and the body's bare skin only
-  // (no halo, and a repainted garment never reaches the page).
-  const after = people
-    ? await blendPeople(before, await matchColours(before, edited, keep), persons, region.width, region.height)
-    : await blendInBox(before, edited, keep, region.width, region.height, undefined, 'in');
-  return { image: await toJpeg(await keepText(page, closeUp ? await pasteRegion(original, after, region) : after, read)), calls };
+  // The AI's colour cast (the red halo around and on the people) removed before pasting: colour
+  // levels only, faces untouched. Each person's correction reaches past their areas as far as the
+  // blend's soft edge (~4 feathers), so no tinted rim is left there.
+  const reach = Math.min(region.width, region.height) * 0.065;
+  const grown = (b: Box): Box => {
+    const gx = (reach / region.width) * 100;
+    const gy = (reach / region.height) * 100;
+    const x = Math.max(0, b.x - gx);
+    const y = Math.max(0, b.y - gy);
+    return { x, y, w: Math.min(100, b.x + b.w + gx) - x, h: Math.min(100, b.y + b.h + gy) - y };
+  };
+  const persons = people
+    ? kept.map((b) => {
+        const [head, body] = personAreas(b, region.width, region.height);
+        return { areas: [grown(head), grown(body)], body };
+      })
+    : [];
+  const clean = people ? await removeCast(before, edited, keep, persons) : edited;
+  const after = await blendInBox(before, clean, keep, region.width, region.height, people ? 0 : undefined, people ? 'out' : 'in');
+  return toJpeg(await keepText(page, closeUp ? await pasteRegion(original, after, region) : after, read));
 }
 
 /**
@@ -183,16 +161,10 @@ export async function touchUpPageStep({ book, read }: BookInput, index: number, 
   const edited = await unpad(answer, base.crop, region.width, region.height);
 
   const people = book.settings.keepOutsideBox && boxes.length;
-  const persons: PersonArea[] = people ? boxes.map((b) => {
-    const [head, body] = personAreas(b, region.width, region.height);
-    return { head, body };
-  }) : [];
-  const keep = people ? persons.flatMap((p) => [p.head, p.body]) : closeUp ? [EDGE_FEATHER] : [];
+  const keep = people ? boxes.flatMap((b) => personAreas(b, region.width, region.height)) : closeUp ? [EDGE_FEATHER] : [];
   if (!keep.length) return toJpeg(await keepText(page, edited, read));
   const before = await sharp(current).extract(region).png().toBuffer();
-  const after = people
-    ? await blendPeople(before, await matchColours(before, edited, keep), persons, region.width, region.height)
-    : await blendInBox(before, edited, keep, region.width, region.height, undefined, 'in');
+  const after = await blendInBox(before, edited, keep, region.width, region.height, people ? 0 : undefined, people ? 'out' : 'in');
   return toJpeg(await keepText(page, closeUp ? await pasteRegion(current, after, region) : after, read));
 }
 

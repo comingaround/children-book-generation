@@ -46,7 +46,7 @@ lib/
   local/                   the browser side: IndexedDB storage (books, people, runs, images), PDF import and export, the run loop
                            (runner.ts: character → approval → pages), hooks, PDF download, the one-time copy of older saves
   draw.ts                  the server side of one image call: close-up, prompt, blend back
-  images.ts                sharp: model inputs, aspect padding, box blend
+  images.ts                sharp: model inputs, aspect padding, colour-cast removal, box blend
   store.ts                 books as JSON files under data/ (plus reading older saves)
   types.ts                 the data shapes, shared with the browser
   pdf.ts                   PDF export spec → scripts/export_pdf.py

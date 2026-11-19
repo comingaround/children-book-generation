@@ -31,7 +31,6 @@ export async function POST(req: Request) {
       members.push({ ...m, photo: await fileOf(form, `photo-${n}`, `${m.person.name}'s photo`), drawing: await fileOf(form, `drawing-${n}`, `${m.person.name}'s drawing`) });
     }
     const art = form.has('art') ? await fileOf(form, 'art', 'The page') : null;
-    const { image, calls } = await drawPageStep(input, Number(spec.index), art, members, spec.fix?.trim() || null, spec.fixFor ?? null);
-    return jpegResponse(image, calls);
+    return jpegResponse(await drawPageStep(input, Number(spec.index), art, members, spec.fix?.trim() || null, spec.fixFor ?? null));
   });
 }
