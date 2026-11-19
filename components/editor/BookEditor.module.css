@@ -267,16 +267,6 @@
   text-align: center;
 }
 
-.pair {
-  display: flex;
-  align-items: flex-end;
-  gap: var(--space-3);
-}
-
-.pair > * {
-  flex: 1 1 0;
-  min-width: 0;
-}
 
 /* What the person brings: a quiet note, not a field. */
 .changes {
@@ -439,3 +429,4 @@
   outline: 2px solid transparent;
   outline-offset: 2px;
 }
+

@@ -41,8 +41,8 @@ type Mode = 'book' | 'pages';
 /** How each page state looks: the strip dot, the chip over the page, and its words. */
 const STATE: Record<PageState, { dot: string; chip: string; label: string }> = {
   ready: { dot: ui.dotOk, chip: ui.sage, label: 'Ready' },
-  needsBox: { dot: ui.dotWarn, chip: ui.peach, label: 'A character needs a box' },
-  noCast: { dot: ui.dotInfo, chip: ui.sky, label: 'No characters, kept as is' },
+  needsBox: { dot: ui.dotWarn, chip: ui.peach, label: 'Someone still needs a box' },
+  noCast: { dot: ui.dotInfo, chip: ui.sky, label: 'No one to replace: kept as is' },
   skip: { dot: '', chip: '', label: 'Skipped' },
 };
 
@@ -141,7 +141,7 @@ export function BookEditor({ initial }: { initial: Book }) {
   }
 
   function removeCharacter(target: BookCharacter) {
-    if (!window.confirm(`Remove ${target.label} from this book? Their boxes and notes on every page go too.`)) return;
+    if (!window.confirm(`Remove ${target.label} from this book? Their boxes and notes on every page are deleted too.`)) return;
     change((b) => ({
       ...b,
       characters: b.characters.filter((c) => c.id !== target.id),
@@ -238,7 +238,7 @@ export function BookEditor({ initial }: { initial: Book }) {
     });
 
   async function deleteBook() {
-    if (!window.confirm(`Delete "${book.title}" and its imported pages? Runs made from it will stop opening.`)) return;
+    if (!window.confirm(`Delete "${book.title}" and its pages? Books already made from it will stop opening.`)) return;
     await withBusy('delete', async () => {
       await removeBook(book);
       router.push('/studio');
@@ -258,7 +258,7 @@ export function BookEditor({ initial }: { initial: Book }) {
     .filter((c) => c.id !== character?.id && page.cast[c.id].box)
     .map((c) => ({ label: c.label, box: page.cast[c.id].box! }))
     // Printed text: kept from the original on every redraw.
-    .concat((page.textBoxes ?? []).map((box) => ({ label: 'Text (kept)', box })));
+    .concat((page.textBoxes ?? []).map((box) => ({ label: 'Text stays', box })));
 
   return (
     <main className={styles.layout}>
@@ -288,7 +288,7 @@ export function BookEditor({ initial }: { initial: Book }) {
           className={cx(ui.btn, ui.secondary)}
           onClick={prepareAll}
           disabled={!!busy}
-          title="AI reads the whole book: finds the characters and the art style, then on every page finds each character, draws their box and writes their pose and the scene. You check and correct it."
+          title="The AI reads the whole book: it finds the characters and the art style, then on every page marks where each character is and describes them and the scene. You check and correct it."
         >
           {busy === 'all' ? <span className={ui.spinner} /> : <SparkIcon />}
           {busy === 'all' ? (progress ?? 'Working…') : 'Prepare all pages with AI'}
@@ -315,24 +315,37 @@ export function BookEditor({ initial }: { initial: Book }) {
                 </button>
               </div>
               <span className={ui.help}>
-                Everyone in the book who can be replaced by a real person: the main character, parents, friends. This applies to every page. Each gets the
-                person&apos;s face, hair and skin tone and keeps their clothing and pose. <strong>Find with AI</strong> reads the book and adds who it finds.
+                Everyone in the book a real person can play: the child, parents, friends. What you set here applies to every page.{' '}
+                <strong>Find with AI</strong> reads the book and adds who it finds.
               </span>
               <CastPills book={book} activeId={character?.id} onPick={setActive} onAdd={addCharacter} />
             </div>
 
             {character ? (
               <div className={ui.section}>
-                <div className={styles.pair}>
-                  <label className={ui.field}>
-                    <span className={ui.label}>Called in the editor</span>
-                    <input className={ui.input} value={character.label} onChange={(e) => setCharacter(character.id, { label: e.target.value })} placeholder="Mommy" />
-                  </label>
-                  <label className={ui.field}>
-                    <span className={ui.label}>Name in the text</span>
-                    <input className={ui.input} value={character.nameInText} onChange={(e) => setCharacter(character.id, { nameInText: e.target.value })} placeholder="none" />
-                  </label>
-                </div>
+                <label className={ui.field}>
+                  <span className={ui.label}>Name in the book</span>
+                  <input
+                    className={ui.input}
+                    value={character.label}
+                    onChange={(e) =>
+                      // A swapped name follows the name as it is typed.
+                      setCharacter(character.id, character.nameInText.trim() ? { label: e.target.value, nameInText: e.target.value } : { label: e.target.value })
+                    }
+                    placeholder="Noah, Mama, the old fisherman"
+                  />
+                  <span className={ui.help}>The character as the book knows them. Who plays them is chosen in Make a book.</span>
+                </label>
+                <Toggle
+                  label="Swap this name in the story text"
+                  help={
+                    character.nameInText.trim()
+                      ? `“${character.nameInText.trim()}” in the text becomes your person’s name`
+                      : 'Off for roles like Mama or Grandpa, which stay as written'
+                  }
+                  checked={!!character.nameInText.trim()}
+                  onChange={(on) => setCharacter(character.id, { nameInText: on ? character.label : '' })}
+                />
                 <div className={ui.field}>
                   <span className={ui.label}>Gender</span>
                   <div className={ui.segmented} role="group" aria-label={`${character.label}'s gender`}>
@@ -344,18 +357,18 @@ export function BookEditor({ initial }: { initial: Book }) {
                   </div>
                 </div>
                 <div className={styles.changes}>
-                  <span className={ui.label}>Changes to the person</span>
-                  <span>Face, hair colour and style, skin tone, facial hair and glasses, taken from their photo.</span>
+                  <span className={ui.label}>What changes</span>
+                  <span>Your person&apos;s face, hair, skin tone and glasses replace this character&apos;s. Clothes and pose stay as drawn.</span>
                 </div>
                 <label className={ui.field}>
-                  <span className={ui.label}>How to recognise them in the book</span>
+                  <span className={ui.label}>What they look like in the book</span>
                   <GrowField value={character.description} onChange={(v) => setCharacter(character.id, { description: v })} placeholder="a woman in her thirties with short red hair" />
-                  <span className={ui.help}>Age, build and hair of the original character; leave clothing out.</span>
+                  <span className={ui.help}>Age, build and hair, so the AI can find them on each page. Leave clothes out.</span>
                 </label>
                 <label className={ui.field}>
-                  <span className={ui.label}>Usual clothing (kept)</span>
+                  <span className={ui.label}>What they usually wear</span>
                   <GrowField value={character.clothing} onChange={(v) => setCharacter(character.id, { clothing: v })} placeholder="turquoise blouse, lilac skirt" />
-                  <span className={ui.help}>Their usual outfit, a hint for the AI. On each page the picture wins.</span>
+                  <span className={ui.help}>Only a hint: on every page the clothes are kept exactly as drawn.</span>
                 </label>
                 <button className={cx(ui.btn, ui.ghost, ui.small, styles.removeBtn)} onClick={() => removeCharacter(character)}>
                   <TrashIcon />
@@ -389,27 +402,27 @@ export function BookEditor({ initial }: { initial: Book }) {
                 <label className={ui.field}>
                   <span className={ui.label}>How the book is drawn</span>
                   <GrowField value={book.settings.artStyle} onChange={(v) => setSettings({ artStyle: v })} placeholder="soft watercolour with fine ink outlines and warm pastel washes" />
-                  <span className={ui.help}>Sent with every drawing so redrawn people match the book. Be specific about line weight, colouring and texture.</span>
+                  <span className={ui.help}>Sent with every picture, so the people we draw match the book. Describe the lines, colours and texture.</span>
                 </label>
               </div>
             </section>
 
             <section className={ui.panel}>
               <div className={ui.section}>
-                <h2 className={ui.panelTitle}>Generation</h2>
+                <h2 className={ui.panelTitle}>How pages are redrawn</h2>
                 <Toggle
-                  label="Keep everything outside the box"
-                  help="Only each character's box is taken from the AI; the rest stays pixel-identical"
+                  label="Keep the rest of the page untouched"
+                  help="Only the area around each character changes; everything else stays exactly as in the original"
                   checked={book.settings.keepOutsideBox}
                   onChange={(v) => setSettings({ keepOutsideBox: v })}
                 />
                 <Toggle
-                  label="Edit a close-up around the box"
-                  help="The AI gets only the area around each character, enlarged: sharper faces on small figures, pose kept better"
+                  label="Zoom in on the characters"
+                  help="The AI works on an enlarged area around them: sharper faces, poses kept better"
                   checked={book.settings.closeUp !== false}
                   onChange={(v) => setSettings({ closeUp: v })}
                 />
-                <Toggle label="White outline on text" help="For text set over busy pictures" checked={book.settings.textHalo} onChange={(v) => setSettings({ textHalo: v })} />
+                <Toggle label="White outline around text" help="Easier to read over busy pictures" checked={book.settings.textHalo} onChange={(v) => setSettings({ textHalo: v })} />
               </div>
             </section>
 
@@ -496,7 +509,7 @@ export function BookEditor({ initial }: { initial: Book }) {
                       className={cx(ui.btn, ui.secondary, ui.small)}
                       onClick={() => withBusy(`page${page.index}`, () => draftPage(page))}
                       disabled={!!busy || !book.characters.length}
-                      title="Checks every character at once on this page and draws their boxes"
+                      title="Finds every character on this page and draws their boxes"
                     >
                       {busy === `page${page.index}` ? <span className={ui.spinner} /> : <SparkIcon />}
                       Find on this page
@@ -505,6 +518,7 @@ export function BookEditor({ initial }: { initial: Book }) {
                   {character ? (
                     <>
                       <CastPills book={book} page={page} activeId={character.id} onPick={setActive} />
+                      <span className={ui.help}>Describe {character.label} as drawn here. All of it is kept when the page is redrawn; only the face, hair and skin change.</span>
                       <Toggle label={`${character.label} is on this page`} checked={!!cast?.present} onChange={(present) => setCast(page.index, character.id, { present })} />
                       {cast?.present && (
                         <>
@@ -513,11 +527,11 @@ export function BookEditor({ initial }: { initial: Book }) {
                             <GrowField rows={1} value={cast.hint} onChange={(v) => setCast(page.index, character.id, { hint: v })} placeholder="the woman in the turquoise blouse, right" />
                           </label>
                           <label className={ui.field}>
-                            <span className={ui.label}>Pose and direction (kept)</span>
+                            <span className={ui.label}>Pose and direction</span>
                             <GrowField value={cast.pose} onChange={(v) => setCast(page.index, character.id, { pose: v })} placeholder="three-quarter view facing left, smiling down at the girl" />
                           </label>
                           <label className={ui.field}>
-                            <span className={ui.label}>Expression (kept)</span>
+                            <span className={ui.label}>Facial expression</span>
                             <GrowField
                               rows={1}
                               value={cast.expression ?? ''}
@@ -526,12 +540,12 @@ export function BookEditor({ initial }: { initial: Book }) {
                             />
                           </label>
                           <label className={ui.field}>
-                            <span className={ui.label}>Clothing (kept)</span>
+                            <span className={ui.label}>Clothes on this page</span>
                             <GrowField
                               rows={1}
                               value={cast.clothing}
                               onChange={(v) => setCast(page.index, character.id, { clothing: v })}
-                              placeholder="What they wear in this picture (Prepare with AI fills it)"
+                              placeholder="What they wear in this picture"
                             />
                           </label>
                           <div className={styles.boxRow}>
@@ -565,23 +579,23 @@ export function BookEditor({ initial }: { initial: Book }) {
 
               {page.kind !== 'skip' && (
                 <div className={ui.section}>
-                  <span className={ui.eyebrow}>Scene and text</span>
+                  <span className={ui.eyebrow}>The page</span>
                   <label className={ui.field}>
-                    <span className={ui.label}>Scene</span>
+                    <span className={ui.label}>What is happening</span>
                     <GrowField value={page.scenePrompt} onChange={(v) => setPage(page.index, { scenePrompt: v })} placeholder="Where we are, who is there and what they are doing." />
                   </label>
                   <label className={ui.field}>
-                    <span className={ui.label}>Objects to keep exactly</span>
+                    <span className={ui.label}>Things that must not move</span>
                     <GrowField
                       value={page.keepObjects ?? ''}
                       onChange={(v) => setPage(page.index, { keepObjects: v })}
-                      placeholder="What the characters touch or overlap, e.g. the toy castle under the boy's hands"
+                      placeholder="e.g. the toy castle under the boy's hands"
                     />
-                    <span className={ui.help}>Every redraw is told to leave these exactly in place, the same shape and outline.</span>
+                    <span className={ui.help}>Objects the characters touch or overlap. Every redraw leaves them exactly as they are.</span>
                   </label>
                   {page.lines.length > 0 && (
                     <div className={ui.field}>
-                      <span className={ui.label}>Page text</span>
+                      <span className={ui.label}>Text on the page</span>
                       <p className={styles.pageText}>
                         {page.lines.map((l, i) => (
                           <Fragment key={i}>
@@ -591,7 +605,7 @@ export function BookEditor({ initial }: { initial: Book }) {
                         ))}
                       </p>
                       <span className={ui.help}>
-                        {names.length ? 'Marked names are replaced with the people’s names.' : 'Set “Name in the text” on a character in Book setup to swap it for the person’s name.'}
+                        {names.length ? 'Highlighted names are swapped for your people’s names.' : 'Add each character’s name in the original book in Book setup, and it’s swapped in the text.'}
                       </span>
                     </div>
                   )}
