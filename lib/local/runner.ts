@@ -335,6 +335,7 @@ async function drawPage(runId: string, index: number): Promise<void> {
     const run = await mutate(runId, (r) => {
       r.pages[index].status = 'working';
       r.pages[index].message = null;
+      r.pages[index].startedAt = new Date(started).toISOString();
     });
     const book = await loadBook(run.bookId);
     const page = book.pages.find((p) => p.index === index);
@@ -380,6 +381,8 @@ async function drawPage(runId: string, index: number): Promise<void> {
     busyRetried.delete(`${runId}:${index}`);
   } catch (err) {
     console.error(`[run] page ${index}`, errorMessage(err));
+    // A failed page can still have cost images (answers rejected for moving the scene).
+    if (err instanceof ApiError && err.calls) await mutate(runId, (r) => void (r.images += err.calls));
     const key = `${runId}:${index}`;
     if (err instanceof ApiError && err.status === 503 && !busyRetried.has(key)) {
       busyRetried.add(key);
@@ -433,6 +436,7 @@ export async function touchUpPage(runId: string, index: number, fix?: string): P
   await mutate(runId, (r) => {
     r.pages[index].status = 'working';
     r.pages[index].message = `Editing version ${from}…`;
+    r.pages[index].startedAt = new Date(started).toISOString();
   });
   try {
     const book = await loadBook(run.bookId);
@@ -451,6 +455,59 @@ export async function touchUpPage(runId: string, index: number, fix?: string): P
       s.status = 'done';
       s.message = null;
       r.images++;
+    });
+  } catch (err) {
+    await mutate(runId, (r) => {
+      r.pages[index].status = 'done';
+      r.pages[index].message = null;
+    });
+    throw err;
+  }
+}
+
+/**
+ * "Match the fade" on a see-through page: the version a page shows keeps its faces and poses, and
+ * its people are faded to the original's strength (see refadePageStep). A new version; the old
+ * one stays. Not queued: one call (more if a plate moves the scene), now.
+ */
+export async function refadePage(runId: string, index: number): Promise<void> {
+  const started = Date.now();
+  const run = await requireRun(runId);
+  const step = run.pages[index];
+  const current = step && chosenFile(step);
+  if (!current) throw new Error('This page has no version to fade yet');
+  if (step.status === 'working' || step.status === 'queued') throw new Error('That page is already being made');
+  const from = chosenIndex(step) + 1;
+  await mutate(runId, (r) => {
+    r.pages[index].status = 'working';
+    r.pages[index].message = `Matching the fade of version ${from}…`;
+    r.pages[index].startedAt = new Date(started).toISOString();
+  });
+  try {
+    const book = await loadBook(run.bookId);
+    const page = book.pages.find((p) => p.index === index);
+    if (!page) throw new Error(`Page ${index} is no longer in the book`);
+    const cast = run.cast.filter((c) => page.cast[c.characterId]?.present && chosenFile(c));
+    const form = new FormData();
+    const spec = await bookSpec(book, form, [page.image]);
+    form.set('spec', JSON.stringify({ ...spec, index, characterIds: cast.map((c) => c.characterId) }));
+    form.set('current', await uploadable(await readFile(current)));
+    for (const [n, c] of cast.entries()) form.set(`drawing-${n}`, await uploadable(await readFile(chosenFile(c)!)));
+    let answer: { blob: Blob; calls: number };
+    try {
+      answer = await apiImage('/api/ai/refade', { method: 'POST', body: form });
+    } catch (err) {
+      if (err instanceof ApiError && err.calls) await mutate(runId, (r) => void (r.images += err.calls));
+      throw err;
+    }
+    const file = await saveFile(localKey(`runs/${runId}/pages/${String(index).padStart(2, '0')}-${Date.now().toString(36)}.jpg`), answer.blob);
+    await mutate(runId, (r) => {
+      const s = r.pages[index];
+      s.attempts.push({ file, at: new Date().toISOString(), ms: Date.now() - started, fix: `Version ${from}, faded to match the original` });
+      s.selected = s.attempts.length - 1;
+      s.status = 'done';
+      s.message = null;
+      r.images += answer.calls;
     });
   } catch (err) {
     await mutate(runId, (r) => {

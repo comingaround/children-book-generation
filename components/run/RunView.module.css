@@ -255,6 +255,35 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* A sliding bar under a page's head while it is being drawn: proof it hasn't frozen. */
+.progress {
+  position: relative;
+  display: block;
+  height: 3px;
+  overflow: hidden;
+  border-radius: var(--r-pill);
+  background: var(--line);
+}
+
+.progress::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 35%;
+  border-radius: inherit;
+  background: var(--ai-ink);
+  animation: progressSlide 1.6s ease-in-out infinite;
+}
+
+@keyframes progressSlide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(290%);
+  }
+}
+
 .pending {
   position: relative;
   overflow: hidden;

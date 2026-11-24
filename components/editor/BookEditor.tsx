@@ -176,7 +176,7 @@ export function BookEditor({ initial }: { initial: Book }) {
    * `onlyMissing` (Prepare all) fills only characters and fields not set yet, so edits survive.
    */
   async function draftPage(target: Page, characters = book.characters, settings = book.settings, onlyMissing = false) {
-    const draft = await askDraft<{ scenePrompt: string; cast: (Omit<CastDraft, 'box'> & { box: Box | null })[]; textBoxes: Box[]; keepObjects: string }>({ index: target.index, characters, settings });
+    const draft = await askDraft<{ scenePrompt: string; cast: (Omit<CastDraft, 'box'> & { box: Box | null })[]; textBoxes: Box[]; keepObjects: string; seeThrough: number }>({ index: target.index, characters, settings });
     change((b) => ({
       ...b,
       pages: b.pages.map((p) => {
@@ -193,7 +193,8 @@ export function BookEditor({ initial }: { initial: Book }) {
         const scenePrompt = onlyMissing ? p.scenePrompt || draft.scenePrompt : draft.scenePrompt || p.scenePrompt;
         const textBoxes = onlyMissing && p.textBoxes?.length ? p.textBoxes : draft.textBoxes;
         const keepObjects = onlyMissing && p.keepObjects?.trim() ? p.keepObjects : draft.keepObjects;
-        return { ...p, scenePrompt, cast: nextCast, textBoxes, keepObjects };
+        const seeThrough = onlyMissing && p.seeThrough !== undefined ? p.seeThrough : draft.seeThrough;
+        return { ...p, scenePrompt, cast: nextCast, textBoxes, keepObjects, seeThrough };
       }),
     }));
   }
@@ -593,6 +594,13 @@ export function BookEditor({ initial }: { initial: Book }) {
                     />
                     <span className={ui.help}>Objects the characters touch or overlap. Every redraw leaves them exactly as they are.</span>
                   </label>
+                  <div className={ui.field}>
+                    <label className={ui.switchRow}>
+                      <span className={ui.label}>The people are see-through</span>
+                      <input type="checkbox" className={ui.switch} checked={!!page.seeThrough} onChange={(ev) => setPage(page.index, { seeThrough: ev.target.checked ? 50 : 0 })} />
+                    </label>
+                    <span className={ui.help}>For pages where the background shows through the characters, like a faded memory. Each redraw measures how faded the original people are, from top to toe, and fades the new ones to match. Pages left off are checked too: people clearly fainter than the redraw are faded the same way.</span>
+                  </div>
                   {page.lines.length > 0 && (
                     <div className={ui.field}>
                       <span className={ui.label}>Text on the page</span>

@@ -16,7 +16,8 @@ import { HttpError } from '../http-error';
  */
 
 const TOKEN_TIMEOUT_MS = 8_000;
-const GENERATE_TIMEOUT_MS = 150_000;
+/** Image answers have taken up to ~147 s on a slow day; 150 s cut good ones off. */
+const GENERATE_TIMEOUT_MS = 240_000;
 /** Back-off before attempts 2–5; image-model capacity is often busy for tens of seconds. */
 const RETRY_DELAYS_MS = [3_000, 8_000, 15_000, 25_000];
 const NOT_CONFIGURED = 'AI is not configured';

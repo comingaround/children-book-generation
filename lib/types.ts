@@ -107,6 +107,14 @@ export interface Page {
    * "the doll house under Noah's hands". Said in every page prompt; found by Prepare with AI.
    */
   keepObjects?: string;
+  /**
+   * Above 0: the characters on this page are see-through (a faded memory, an ending page). The
+   * model draws them solid and the engine fades them to the original, measured band by band down
+   * each body (lib/draw.ts fadeToPage); the number (the editor sets 50) is only the fallback
+   * strength when that can't be measured. 0 or missing = solid, though the engine still fades
+   * people the original clearly shows fainter (looksFaded).
+   */
+  seeThrough?: number;
 }
 
 export interface BookSettings {
@@ -175,6 +183,8 @@ export interface RunStep {
   fix?: string | null;
   /** Which character the correction is for; null = everyone on the page. */
   fixFor?: string | null;
+  /** When the current 'working' spell began (ISO), for the live timer. */
+  startedAt?: string | null;
 }
 
 /** Step 1 for one character: the person drawn in the book's style. */

@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react';
 import { cx, money, seconds } from '@/lib/client';
 import { publishExample } from '@/lib/local/examples';
 import { downloadPdf } from '@/lib/local/pdf';
-import { approveCast, regenerateCharacter, regeneratePage, retryText, selectCharacter, selectPageAttempt, setTogether, touchUpPage } from '@/lib/local/runner';
+import { approveCast, regenerateCharacter, regeneratePage, retryText, selectCharacter, selectPageAttempt, setTogether, touchUpPage, refadePage } from '@/lib/local/runner';
 import { deleteRun } from '@/lib/local/store';
 import { canDrawTogether, chosenFile, chosenIndex, FIX_MAX, fileUrl, pageLabel, presentOn, type Book, type CastStep, type Person, type Run, type RunStep } from '@/lib/types';
 
@@ -72,9 +72,16 @@ function RunBody({ run, book, people, price, serverPdf }: { run: Run; book: Book
     }
   }
 
+  /** What a page's correction box holds: what was typed, else, after a failure, what it was sent with. */
+  const fixOf = (index: number) => fixes[index] ?? (run.pages[index]?.status === 'error' ? run.pages[index].fix ?? '' : '');
+  const fixForOf = (index: number) => fixFor[index] ?? (run.pages[index]?.status === 'error' ? run.pages[index].fixFor ?? '' : '');
+
   async function regenerate(index: number) {
-    await act(() => regeneratePage(run.id, index, fixes[index] ?? '', fixFor[index] || null));
-    setFixes((f) => ({ ...f, [index]: '' }));
+    await act(() => regeneratePage(run.id, index, fixOf(index), fixForOf(index) || null));
+    // Cleared, not emptied: if this attempt fails, the box shows the correction it was sent with.
+    const without = <T,>(record: Record<number, T>) => Object.fromEntries(Object.entries(record).filter(([key]) => Number(key) !== index));
+    setFixes(without);
+    setFixFor(without);
   }
 
   async function remove() {
@@ -308,8 +315,13 @@ function RunBody({ run, book, people, price, serverPdf }: { run: Run; book: Book
                 <div className={styles.pageHead}>
                   <strong>{label}</strong>
                   <StepChip step={step} />
-                  {step.attempts.at(-1) && <span className={styles.time}>{seconds(step.attempts.at(-1)!.ms)}</span>}
+                  {step.status === 'working' && step.startedAt ? (
+                    <Elapsed since={step.startedAt} />
+                  ) : (
+                    step.attempts.at(-1) && !busy && <span className={styles.time}>{seconds(step.attempts.at(-1)!.ms)}</span>
+                  )}
                 </div>
+                {step.status === 'working' && <span className={styles.progress} role="progressbar" aria-label={`${label} is being drawn`} />}
 
                 {file ? (
                   <BeforeAfter
@@ -347,11 +359,11 @@ function RunBody({ run, book, people, price, serverPdf }: { run: Run; book: Book
 
                 {canFix && onPage.length > 1 && (
                   <div className={ui.segmented} role="group" aria-label={`Who the fix for ${label} is for`}>
-                    <button className={ui.segment} aria-pressed={!fixFor[page.index]} onClick={() => setFixFor((f) => ({ ...f, [page.index]: '' }))}>
+                    <button className={ui.segment} aria-pressed={!fixForOf(page.index)} onClick={() => setFixFor((f) => ({ ...f, [page.index]: '' }))}>
                       Everyone
                     </button>
                     {onPage.map((c) => (
-                      <button key={c.id} className={ui.segment} aria-pressed={fixFor[page.index] === c.id} onClick={() => setFixFor((f) => ({ ...f, [page.index]: c.id }))}>
+                      <button key={c.id} className={ui.segment} aria-pressed={fixForOf(page.index) === c.id} onClick={() => setFixFor((f) => ({ ...f, [page.index]: c.id }))}>
                         {c.label}
                       </button>
                     ))}
@@ -362,7 +374,7 @@ function RunBody({ run, book, people, price, serverPdf }: { run: Run; book: Book
                     <span className={ui.srOnly}>Optional correction for {label}</span>
                     <input
                       className={cx(ui.input, styles.fixInput)}
-                      value={fixes[page.index] ?? ''}
+                      value={fixOf(page.index)}
                       maxLength={FIX_MAX}
                       onChange={(e) => setFixes((f) => ({ ...f, [page.index]: e.target.value }))}
                       onKeyDown={(e) => {
@@ -371,9 +383,9 @@ function RunBody({ run, book, people, price, serverPdf }: { run: Run; book: Book
                       placeholder="Optional fix, e.g. facing away from us"
                       disabled={busy}
                     />
-                    {(fixes[page.index]?.length ?? 0) > 0 && (
+                    {fixOf(page.index).length > 0 && (
                       <span className={styles.fixCount}>
-                        {fixes[page.index].length}/{FIX_MAX}
+                        {fixOf(page.index).length}/{FIX_MAX}
                       </span>
                     )}
                   </label>
@@ -413,6 +425,16 @@ function RunBody({ run, book, people, price, serverPdf }: { run: Run; book: Book
                       Edit this version
                     </button>
                   )}
+                  {serverPdf && file && !!page.seeThrough && (
+                    <button
+                      className={cx(ui.btn, ui.ghost, ui.small)}
+                      onClick={() => act(() => refadePage(run.id, page.index))}
+                      disabled={busy}
+                      title="Keep this version (faces, poses, everything) and only fade its people to match how see-through they are in the original."
+                    >
+                      Match the fade
+                    </button>
+                  )}
                   <button
                     className={cx(ui.btn, ui.secondary, ui.small, !(serverPdf && file) && styles.redo)}
                     onClick={() => regenerate(page.index)}
@@ -433,6 +455,16 @@ function RunBody({ run, book, people, price, serverPdf }: { run: Run; book: Book
   );
 }
 
+
+/** Seconds since `since`, ticking, so a page that is still drawing visibly isn't frozen. */
+function Elapsed({ since }: { since: string }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  return <span className={styles.time}>{seconds(Math.max(0, now - Date.parse(since)))}</span>;
+}
 
 function StepChip({ step }: { step: RunStep }) {
   const map: Record<RunStep['status'], [string, string]> = {

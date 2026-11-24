@@ -4,7 +4,9 @@
 export class ApiError extends Error {
   constructor(
     message: string,
-    readonly status: number
+    readonly status: number,
+    /** Paid image calls the failed request still made (header x-image-calls). */
+    readonly calls = 0
   ) {
     super(message);
   }
@@ -18,7 +20,7 @@ async function send(url: string, init?: RequestInit & { json?: unknown }): Promi
   });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new ApiError(body.error ?? `Request failed (${res.status})`, res.status);
+    throw new ApiError(body.error ?? `Request failed (${res.status})`, res.status, Number(res.headers.get('x-image-calls')) || 0);
   }
   return res;
 }
