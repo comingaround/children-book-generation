@@ -7,8 +7,11 @@ import { CheckIcon } from '../icons';
 import ui from '../ui.module.css';
 import styles from './Library.module.css';
 
-/** One book. Make a book: the whole card selects it. Edit books: the whole card opens the editor. */
-export function BookCard({ book, selected, onSelect }: { book: Book; selected?: boolean; onSelect?: () => void }) {
+/**
+ * One book. Make a book: the whole card selects it. Edit books: the whole card opens the editor
+ * (`viewOnly`: the public demo's published book, opened to look at, not to edit).
+ */
+export function BookCard({ book, selected, onSelect, viewOnly = false }: { book: Book; selected?: boolean; onSelect?: () => void; viewOnly?: boolean }) {
   const cover = book.pages.find((p) => p.kind === 'cover') ?? book.pages[0];
   const { ready, total } = pageReadiness(book);
   const story = book.pages.filter((p) => p.kind !== 'skip').length;
@@ -37,7 +40,9 @@ export function BookCard({ book, selected, onSelect }: { book: Book; selected?: 
       </span>
       {!onSelect && (
         <span className={styles.visibility}>
-          {book.local
+          {viewOnly
+            ? 'Demo book · open it to see how it is prepared (view only)'
+            : book.local
             ? bookReady(book)
               ? 'In this browser · under Make a book'
               : 'In this browser · under Make a book once every page is ready'

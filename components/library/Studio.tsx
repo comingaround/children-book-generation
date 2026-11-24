@@ -15,11 +15,22 @@ import ui from '../ui.module.css';
 import { BookCard } from './BookCard';
 import styles from './Library.module.css';
 
+/** A finished example made from a published book, as Edit books lists it online. */
+export interface StudioExample {
+  id: string;
+  title: string;
+  people: string;
+  pages: number;
+  cover: string;
+}
+
 /**
  * Edit books: import a PDF and prepare its characters, boxes and style. `books` are the published
- * ones (data/books/, editable on the local version only); imported books stay in this browser.
+ * ones (data/books/); with `viewOnly` (the public demo) they open view only, so visitors can see how
+ * a book is prepared, and `examples` shows what the engine made from them. Imported books stay in
+ * this browser and are the visitor's to edit.
  */
-export function Studio({ books: published, price }: { books: Book[]; price: number }) {
+export function Studio({ books: published, price, viewOnly = false, examples = [] }: { books: Book[]; price: number; viewOnly?: boolean; examples?: StudioExample[] }) {
   const router = useRouter();
   const local = useLocalBooks();
   const books = [...published, ...(local ?? [])];
@@ -83,9 +94,36 @@ export function Studio({ books: published, price }: { books: Book[]; price: numb
         ) : (
           <ul className={styles.grid}>
             {books.map((book) => (
-              <BookCard key={book.id} book={book} />
+              <BookCard key={book.id} book={book} viewOnly={viewOnly && !book.local} />
             ))}
           </ul>
+        )}
+
+        {examples.length > 0 && (
+          <section className={styles.runs}>
+            <div className={styles.runsHead}>
+              <h2 className={ui.panelTitle}>Finished examples</h2>
+              <span className={ui.muted}>What the engine made from these books</span>
+            </div>
+            <ul className={styles.runList}>
+              {examples.map((example) => (
+                <li key={example.id}>
+                  <Link href={`/example/${example.id}`} className={styles.runRow}>
+                    <span className={styles.runThumb}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      {example.cover && <img src={fileUrl(example.cover)} alt="" />}
+                    </span>
+                    <span className={styles.runText}>
+                      <strong>{example.title}</strong>
+                      <span className={ui.muted}>
+                        {example.people} · {example.pages} pages
+                      </span>
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </section>
         )}
 
         <section className={styles.runs}>

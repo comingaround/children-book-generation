@@ -45,14 +45,18 @@ lib/
   ai/prompts.ts            character, page and "Draft with AI" prompts
   local/                   the browser side: IndexedDB storage (books, people, runs, images), PDF import and export, the run loop
                            (runner.ts: character → approval → pages), hooks, PDF download, the one-time copy of older saves
-  draw.ts                  the server side of one image call: close-up, prompt, blend back
-  images.ts                sharp: model inputs, aspect padding, colour-cast removal, box blend
+  draw.ts                  the server side of one image call: close-up, prompt, checks and retries, blend back
+  inspect.ts               checks on each answer (Gemini Flash): swapped people, leftover hair, face size and place
+  images.ts                sharp: model inputs, aspect padding, colour-cast removal, box blend, see-through fade,
+                           text restored by the speech bubble's shape
   store.ts                 books as JSON files under data/ (plus reading older saves)
   types.ts                 the data shapes, shared with the browser
   pdf.ts                   PDF export spec → scripts/export_pdf.py
   migrate.ts               reads files from the single-hero version into the current shapes
 scripts/import_pdf.py      PDF → data/books/<id>/ (--retext <id> re-extracts a book's text)
 scripts/export_pdf.py      run → PDF from the book's source PDF
+scripts/testset-checks.ts  the answer checks on saved good/bad answers in data/testset/ (offline, text calls only)
+scripts/finish-answer.ts   re-finishes a saved AI answer with the current engine (no image call)
 data/                      books/ (gitignored); children/ and runs/ only hold saves from before runs moved to the browser
 ```
 

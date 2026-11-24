@@ -29,7 +29,8 @@ const BAD: Record<string, string> = {
 };
 (async () => {
   const book: Book = JSON.parse(fs.readFileSync('data/books/noah-and-lina-giveaway/book.json', 'utf8'));
-  for (const runId of ['run-mwp6xwj9421fa2', 'run-mwdfcma36e0f3a']) {
+  // Every run saved under data/testset/ (see /api/dev/testset).
+  for (const runId of fs.readdirSync('data/testset')) {
     const run: SavedRun = JSON.parse(fs.readFileSync(`data/testset/${runId}/run.json`, 'utf8'));
     const drawings: Record<string, Buffer> = {};
     const hairs: Record<string, string | undefined> = {};

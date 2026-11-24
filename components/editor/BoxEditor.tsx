@@ -22,10 +22,12 @@ interface Props {
   onChange: (box: Box | null) => void;
   /** Other characters' boxes on this page, shown faintly for orientation. */
   others?: { label: string; box: Box }[];
+  /** Boxes shown only: no drawing, moving or resizing. */
+  readOnly?: boolean;
 }
 
 /** Draw, move and resize one character's box over the illustration. Coordinates are % of the art. */
-export function BoxEditor({ box, label, onChange, others = [] }: Props) {
+export function BoxEditor({ box, label, onChange, others = [], readOnly = false }: Props) {
   const layer = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | null>(null);
   const [live, setLive] = useState<Box | null>(null);
@@ -37,6 +39,7 @@ export function BoxEditor({ box, label, onChange, others = [] }: Props) {
   };
 
   function start(e: PointerEvent, next: Drag) {
+    if (readOnly) return;
     e.preventDefault();
     e.stopPropagation();
     layer.current!.setPointerCapture(e.pointerId);

@@ -69,7 +69,11 @@ function mergeCharacters(current: BookCharacter[], found: BookDraft['characters'
   return result;
 }
 
-export function BookEditor({ initial }: { initial: Book }) {
+/**
+ * `readOnly`: the public demo's look inside a published book. Everything is shown, nothing
+ * saves, and the AI buttons are gone.
+ */
+export function BookEditor({ initial, readOnly = false }: { initial: Book; readOnly?: boolean }) {
   const router = useRouter();
   const [book, setBook] = useState(initial);
   const [current, setCurrent] = useState(initial.pages.find((p) => p.kind !== 'skip')?.index ?? 1);
@@ -120,6 +124,7 @@ export function BookEditor({ initial }: { initial: Book }) {
   }, [book.pages]);
 
   function change(fn: (b: Book) => Book) {
+    if (readOnly) return;
     dirty.current = true;
     setBook(fn);
   }
@@ -270,7 +275,7 @@ export function BookEditor({ initial }: { initial: Book }) {
           <BackIcon />
           Books
         </Link>
-        <input className={styles.title} value={book.title} onChange={(e) => change((b) => ({ ...b, title: e.target.value }))} aria-label="Book title" />
+        <input className={styles.title} value={book.title} onChange={(e) => change((b) => ({ ...b, title: e.target.value }))} aria-label="Book title" readOnly={readOnly} />
         <div className={cx(ui.segmented, styles.modes)} role="group" aria-label="What to edit">
           <button className={ui.segment} aria-pressed={mode === 'book'} onClick={() => setMode('book')}>
             Book setup
@@ -282,9 +287,16 @@ export function BookEditor({ initial }: { initial: Book }) {
         <span className={cx(ui.chip, readiness.total && readiness.ready === readiness.total ? ui.sage : ui.peach)}>
           {readiness.ready}/{readiness.total} pages ready
         </span>
-        <span className={styles.save} aria-live="polite">
-          {save === 'saving' ? 'Saving…' : save === 'error' ? 'Not saved — retrying on next change' : 'Saved'}
-        </span>
+        {readOnly ? (
+          <span className={cx(ui.chip, ui.sky)} title="The demo shows how a book is prepared. Import your own PDF to edit one.">
+            View only
+          </span>
+        ) : (
+          <span className={styles.save} aria-live="polite">
+            {save === 'saving' ? 'Saving…' : save === 'error' ? 'Not saved — retrying on next change' : 'Saved'}
+          </span>
+        )}
+        {!readOnly && (
         <button
           className={cx(ui.btn, ui.secondary)}
           onClick={prepareAll}
@@ -294,6 +306,7 @@ export function BookEditor({ initial }: { initial: Book }) {
           {busy === 'all' ? <span className={ui.spinner} /> : <SparkIcon />}
           {busy === 'all' ? (progress ?? 'Working…') : 'Prepare all pages with AI'}
         </button>
+        )}
       </header>
 
       {error && (
@@ -310,16 +323,18 @@ export function BookEditor({ initial }: { initial: Book }) {
             <div className={ui.section}>
               <div className={styles.sectionHead}>
                 <h2 className={ui.panelTitle}>Characters</h2>
-                <button className={cx(ui.btn, ui.secondary, ui.small)} onClick={() => withBusy('find', async () => void (await findCharacters()))} disabled={!!busy}>
-                  {busy === 'find' ? <span className={ui.spinner} /> : <SparkIcon />}
-                  Find with AI
-                </button>
+                {!readOnly && (
+                  <button className={cx(ui.btn, ui.secondary, ui.small)} onClick={() => withBusy('find', async () => void (await findCharacters()))} disabled={!!busy}>
+                    {busy === 'find' ? <span className={ui.spinner} /> : <SparkIcon />}
+                    Find with AI
+                  </button>
+                )}
               </div>
               <span className={ui.help}>
                 Everyone in the book a real person can play: the child, parents, friends. What you set here applies to every page.{' '}
                 <strong>Find with AI</strong> reads the book and adds who it finds.
               </span>
-              <CastPills book={book} activeId={character?.id} onPick={setActive} onAdd={addCharacter} />
+              <CastPills book={book} activeId={character?.id} onPick={setActive} onAdd={readOnly ? undefined : addCharacter} />
             </div>
 
             {character ? (
@@ -334,10 +349,11 @@ export function BookEditor({ initial }: { initial: Book }) {
                       setCharacter(character.id, character.nameInText.trim() ? { label: e.target.value, nameInText: e.target.value } : { label: e.target.value })
                     }
                     placeholder="Noah, Mama, the old fisherman"
+                    readOnly={readOnly}
                   />
                   <span className={ui.help}>The character as the book knows them. Who plays them is chosen in Make a book.</span>
                 </label>
-                <Toggle
+                <Toggle disabled={readOnly}
                   label="Swap this name in the story text"
                   help={
                     character.nameInText.trim()
@@ -351,7 +367,7 @@ export function BookEditor({ initial }: { initial: Book }) {
                   <span className={ui.label}>Gender</span>
                   <div className={ui.segmented} role="group" aria-label={`${character.label}'s gender`}>
                     {GENDERS.map((g) => (
-                      <button key={g.value} className={ui.segment} aria-pressed={character.gender === g.value} onClick={() => setCharacter(character.id, { gender: g.value })}>
+                      <button key={g.value} className={ui.segment} aria-pressed={character.gender === g.value} disabled={readOnly} onClick={() => setCharacter(character.id, { gender: g.value })}>
                         {g.label}
                       </button>
                     ))}
@@ -363,18 +379,20 @@ export function BookEditor({ initial }: { initial: Book }) {
                 </div>
                 <label className={ui.field}>
                   <span className={ui.label}>What they look like in the book</span>
-                  <GrowField value={character.description} onChange={(v) => setCharacter(character.id, { description: v })} placeholder="a woman in her thirties with short red hair" />
+                  <GrowField readOnly={readOnly} value={character.description} onChange={(v) => setCharacter(character.id, { description: v })} placeholder="a woman in her thirties with short red hair" />
                   <span className={ui.help}>Age, build and hair, so the AI can find them on each page. Leave clothes out.</span>
                 </label>
                 <label className={ui.field}>
                   <span className={ui.label}>What they usually wear</span>
-                  <GrowField value={character.clothing} onChange={(v) => setCharacter(character.id, { clothing: v })} placeholder="turquoise blouse, lilac skirt" />
+                  <GrowField readOnly={readOnly} value={character.clothing} onChange={(v) => setCharacter(character.id, { clothing: v })} placeholder="turquoise blouse, lilac skirt" />
                   <span className={ui.help}>Only a hint: on every page the clothes are kept exactly as drawn.</span>
                 </label>
-                <button className={cx(ui.btn, ui.ghost, ui.small, styles.removeBtn)} onClick={() => removeCharacter(character)}>
-                  <TrashIcon />
-                  Remove {character.label}
-                </button>
+                {!readOnly && (
+                  <button className={cx(ui.btn, ui.ghost, ui.small, styles.removeBtn)} onClick={() => removeCharacter(character)}>
+                    <TrashIcon />
+                    Remove {character.label}
+                  </button>
+                )}
               </div>
             ) : (
               <div className={styles.emptyCast}>
@@ -402,7 +420,7 @@ export function BookEditor({ initial }: { initial: Book }) {
                 </div>
                 <label className={ui.field}>
                   <span className={ui.label}>How the book is drawn</span>
-                  <GrowField value={book.settings.artStyle} onChange={(v) => setSettings({ artStyle: v })} placeholder="soft watercolour with fine ink outlines and warm pastel washes" />
+                  <GrowField readOnly={readOnly} value={book.settings.artStyle} onChange={(v) => setSettings({ artStyle: v })} placeholder="soft watercolour with fine ink outlines and warm pastel washes" />
                   <span className={ui.help}>Sent with every picture, so the people we draw match the book. Describe the lines, colours and texture.</span>
                 </label>
               </div>
@@ -411,19 +429,19 @@ export function BookEditor({ initial }: { initial: Book }) {
             <section className={ui.panel}>
               <div className={ui.section}>
                 <h2 className={ui.panelTitle}>How pages are redrawn</h2>
-                <Toggle
+                <Toggle disabled={readOnly}
                   label="Keep the rest of the page untouched"
                   help="Only the area around each character changes; everything else stays exactly as in the original"
                   checked={book.settings.keepOutsideBox}
                   onChange={(v) => setSettings({ keepOutsideBox: v })}
                 />
-                <Toggle
+                <Toggle disabled={readOnly}
                   label="Zoom in on the characters"
                   help="The AI works on an enlarged area around them: sharper faces, poses kept better"
                   checked={book.settings.closeUp !== false}
                   onChange={(v) => setSettings({ closeUp: v })}
                 />
-                <Toggle label="White outline around text" help="Easier to read over busy pictures" checked={book.settings.textHalo} onChange={(v) => setSettings({ textHalo: v })} />
+                <Toggle disabled={readOnly} label="White outline around text" help="Easier to read over busy pictures" checked={book.settings.textHalo} onChange={(v) => setSettings({ textHalo: v })} />
               </div>
             </section>
 
@@ -431,10 +449,12 @@ export function BookEditor({ initial }: { initial: Book }) {
               <button className={cx(ui.btn, ui.primary)} onClick={() => setMode('pages')}>
                 Go to the pages
               </button>
-              <button className={cx(ui.btn, ui.danger, ui.small)} onClick={deleteBook} disabled={!!busy}>
-                <TrashIcon />
-                Delete book
-              </button>
+              {!readOnly && (
+                <button className={cx(ui.btn, ui.danger, ui.small)} onClick={deleteBook} disabled={!!busy}>
+                  <TrashIcon />
+                  Delete book
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -465,7 +485,7 @@ export function BookEditor({ initial }: { initial: Book }) {
           <section className={styles.canvas}>
             <div className={styles.canvasBar}>
               <span className={cx(ui.chip, state.chip)}>{state.label}</span>
-              <span className={ui.muted}>{editable ? `Drag on the picture to draw a box around ${character!.label}` : ''}</span>
+              <span className={ui.muted}>{editable && !readOnly ? `Drag on the picture to draw a box around ${character!.label}` : ''}</span>
               <label className={cx(ui.switchRow, styles.textToggle)}>
                 <span>Show text</span>
                 <input type="checkbox" className={ui.switch} checked={showText} onChange={(e) => setShowText(e.target.checked)} />
@@ -478,7 +498,7 @@ export function BookEditor({ initial }: { initial: Book }) {
                 showText={showText}
                 className={cx(styles.pageView, book.pageWidth > book.pageHeight ? styles.pageWide : styles.pageTall)}
                 overlay={
-                  editable ? <BoxEditor box={cast!.box} label={character!.label} others={others} onChange={(box) => setCast(page.index, character!.id, { box })} /> : null
+                  editable ? <BoxEditor box={cast!.box} label={character!.label} others={others} readOnly={readOnly} onChange={(box) => setCast(page.index, character!.id, { box })} /> : null
                 }
               />
             </div>
@@ -493,7 +513,7 @@ export function BookEditor({ initial }: { initial: Book }) {
                   <span className={ui.label}>Page type</span>
                   <div className={ui.segmented} role="group" aria-label="Page type">
                     {(['cover', 'page', 'skip'] as PageKind[]).map((k) => (
-                      <button key={k} className={ui.segment} aria-pressed={page.kind === k} onClick={() => setPage(page.index, { kind: k })}>
+                      <button key={k} className={ui.segment} aria-pressed={page.kind === k} disabled={readOnly} onClick={() => setPage(page.index, { kind: k })}>
                         {k === 'cover' ? 'Cover' : k === 'page' ? 'Story page' : 'Skip'}
                       </button>
                     ))}
@@ -506,34 +526,36 @@ export function BookEditor({ initial }: { initial: Book }) {
                 <div className={ui.section}>
                   <div className={styles.sectionHead}>
                     <span className={ui.eyebrow}>Characters</span>
-                    <button
-                      className={cx(ui.btn, ui.secondary, ui.small)}
-                      onClick={() => withBusy(`page${page.index}`, () => draftPage(page))}
-                      disabled={!!busy || !book.characters.length}
-                      title="Finds every character on this page and draws their boxes"
-                    >
-                      {busy === `page${page.index}` ? <span className={ui.spinner} /> : <SparkIcon />}
-                      Find on this page
-                    </button>
+                    {!readOnly && (
+                      <button
+                        className={cx(ui.btn, ui.secondary, ui.small)}
+                        onClick={() => withBusy(`page${page.index}`, () => draftPage(page))}
+                        disabled={!!busy || !book.characters.length}
+                        title="Finds every character on this page and draws their boxes"
+                      >
+                        {busy === `page${page.index}` ? <span className={ui.spinner} /> : <SparkIcon />}
+                        Find on this page
+                      </button>
+                    )}
                   </div>
                   {character ? (
                     <>
                       <CastPills book={book} page={page} activeId={character.id} onPick={setActive} />
                       <span className={ui.help}>Describe {character.label} as drawn here. All of it is kept when the page is redrawn; only the face, hair and skin change.</span>
-                      <Toggle label={`${character.label} is on this page`} checked={!!cast?.present} onChange={(present) => setCast(page.index, character.id, { present })} />
+                      <Toggle disabled={readOnly} label={`${character.label} is on this page`} checked={!!cast?.present} onChange={(present) => setCast(page.index, character.id, { present })} />
                       {cast?.present && (
                         <>
                           <label className={ui.field}>
                             <span className={ui.label}>Which one is {character.label}</span>
-                            <GrowField rows={1} value={cast.hint} onChange={(v) => setCast(page.index, character.id, { hint: v })} placeholder="the woman in the turquoise blouse, right" />
+                            <GrowField readOnly={readOnly} rows={1} value={cast.hint} onChange={(v) => setCast(page.index, character.id, { hint: v })} placeholder="the woman in the turquoise blouse, right" />
                           </label>
                           <label className={ui.field}>
                             <span className={ui.label}>Pose and direction</span>
-                            <GrowField value={cast.pose} onChange={(v) => setCast(page.index, character.id, { pose: v })} placeholder="three-quarter view facing left, smiling down at the girl" />
+                            <GrowField readOnly={readOnly} value={cast.pose} onChange={(v) => setCast(page.index, character.id, { pose: v })} placeholder="three-quarter view facing left, smiling down at the girl" />
                           </label>
                           <label className={ui.field}>
                             <span className={ui.label}>Facial expression</span>
-                            <GrowField
+                            <GrowField readOnly={readOnly}
                               rows={1}
                               value={cast.expression ?? ''}
                               onChange={(v) => setCast(page.index, character.id, { expression: v })}
@@ -542,7 +564,7 @@ export function BookEditor({ initial }: { initial: Book }) {
                           </label>
                           <label className={ui.field}>
                             <span className={ui.label}>Clothes on this page</span>
-                            <GrowField
+                            <GrowField readOnly={readOnly}
                               rows={1}
                               value={cast.clothing}
                               onChange={(v) => setCast(page.index, character.id, { clothing: v })}
@@ -556,9 +578,11 @@ export function BookEditor({ initial }: { initial: Book }) {
                                 <span className={styles.boxNumbers}>
                                   {Math.round(cast.box.x)}%, {Math.round(cast.box.y)}% · {Math.round(cast.box.w)} × {Math.round(cast.box.h)}%
                                 </span>
-                                <button className={cx(ui.btn, ui.ghost, ui.small)} onClick={() => setCast(page.index, character.id, { box: null })}>
-                                  Clear
-                                </button>
+                                {!readOnly && (
+                                  <button className={cx(ui.btn, ui.ghost, ui.small)} onClick={() => setCast(page.index, character.id, { box: null })}>
+                                    Clear
+                                  </button>
+                                )}
                               </>
                             ) : (
                               <span className={styles.boxMissing}>Not drawn yet: drag on the picture</span>
@@ -583,11 +607,11 @@ export function BookEditor({ initial }: { initial: Book }) {
                   <span className={ui.eyebrow}>The page</span>
                   <label className={ui.field}>
                     <span className={ui.label}>What is happening</span>
-                    <GrowField value={page.scenePrompt} onChange={(v) => setPage(page.index, { scenePrompt: v })} placeholder="Where we are, who is there and what they are doing." />
+                    <GrowField readOnly={readOnly} value={page.scenePrompt} onChange={(v) => setPage(page.index, { scenePrompt: v })} placeholder="Where we are, who is there and what they are doing." />
                   </label>
                   <label className={ui.field}>
                     <span className={ui.label}>Things that must not move</span>
-                    <GrowField
+                    <GrowField readOnly={readOnly}
                       value={page.keepObjects ?? ''}
                       onChange={(v) => setPage(page.index, { keepObjects: v })}
                       placeholder="e.g. the toy castle under the boy's hands"
@@ -597,7 +621,7 @@ export function BookEditor({ initial }: { initial: Book }) {
                   <div className={ui.field}>
                     <label className={ui.switchRow}>
                       <span className={ui.label}>The people are see-through</span>
-                      <input type="checkbox" className={ui.switch} checked={!!page.seeThrough} onChange={(ev) => setPage(page.index, { seeThrough: ev.target.checked ? 50 : 0 })} />
+                      <input type="checkbox" className={ui.switch} checked={!!page.seeThrough} disabled={readOnly} onChange={(ev) => setPage(page.index, { seeThrough: ev.target.checked ? 50 : 0 })} />
                     </label>
                     <span className={ui.help}>For pages where the background shows through the characters, like a faded memory. Each redraw measures how faded the original people are, from top to toe, and fades the new ones to match. Pages left off are checked too: people clearly fainter than the redraw are faded the same way.</span>
                   </div>

@@ -14,6 +14,8 @@ interface Props {
   /** Lines shown while the field is not being edited. */
   rows?: number;
   'aria-label'?: string;
+  /** Shown, selectable, not editable (the public demo's view-only editor). */
+  readOnly?: boolean;
 }
 
 /**
