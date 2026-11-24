@@ -117,6 +117,9 @@ export interface Page {
   seeThrough?: number;
 }
 
+/** A page's see-through setting as stored: a whole number, 0–90. */
+export const clampSeeThrough = (value: number) => Math.min(90, Math.max(0, Math.round(value)));
+
 export interface BookSettings {
   artStyle: string;
   /** Paste the AI result back only inside a character's box, so the rest stays pixel-identical. */

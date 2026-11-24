@@ -324,6 +324,13 @@ async function drawOnPage(book: Book, page: Page, art: Blob | null, group: Membe
   return apiImage('/api/ai/page', { method: 'POST', body: form });
 }
 
+/** A page step starts work: its status, what it says meanwhile, and when it began (the live timer). */
+function startWorking(step: RunStep, message: string | null, started: number): void {
+  step.status = 'working';
+  step.message = message;
+  step.startedAt = new Date(started).toISOString();
+}
+
 /**
  * One version of a page. One by one (default): each assigned character replaced in turn on the
  * same image. All at once (run.together, when canDrawTogether): one image call for all of them.
@@ -332,11 +339,7 @@ async function drawPage(runId: string, index: number): Promise<void> {
   const started = Date.now();
   const say = (message: string) => mutate(runId, (r) => void (r.pages[index].message = message));
   try {
-    const run = await mutate(runId, (r) => {
-      r.pages[index].status = 'working';
-      r.pages[index].message = null;
-      r.pages[index].startedAt = new Date(started).toISOString();
-    });
+    const run = await mutate(runId, (r) => startWorking(r.pages[index], null, started));
     const book = await loadBook(run.bookId);
     const page = book.pages.find((p) => p.index === index);
     if (!page) throw new Error(`Page ${index} is no longer in the book`);
@@ -420,82 +423,37 @@ export async function regeneratePage(runId: string, index: number, fix?: string,
 }
 
 /**
- * The owner's "Edit this version": the version a page shows goes back to the AI with the book's
- * own art beside it, and only what `fix` asks changes (by default the clothing, back to the
- * original's colours). Its answer is a new version; the old one stays. Not queued: one call, now.
+ * A new version made from the one a page shows, now and not queued (Edit this version, Match the
+ * fade): the page reads `working` with `message` meanwhile; `send` fills the request (the book and
+ * the version as `current` are already in it) and names the endpoint. The answer is added as a
+ * new version, labelled by `label`; the old one stays. Images spent count even if it fails.
  */
-export async function touchUpPage(runId: string, index: number, fix?: string): Promise<void> {
+async function newVersionNow(
+  runId: string,
+  index: number,
+  message: (from: number) => string,
+  send: (run: Run, page: Page, form: FormData, spec: Record<string, unknown>) => Promise<string>,
+  label: (from: number) => string
+): Promise<void> {
   const started = Date.now();
   const run = await requireRun(runId);
   const step = run.pages[index];
   const current = step && chosenFile(step);
-  if (!current) throw new Error('This page has no version to edit yet');
+  if (!current) throw new Error('This page has no version yet');
   if (step.status === 'working' || step.status === 'queued') throw new Error('That page is already being made');
   const from = chosenIndex(step) + 1;
-  const note = fix?.trim().slice(0, FIX_MAX) || null;
-  await mutate(runId, (r) => {
-    r.pages[index].status = 'working';
-    r.pages[index].message = `Editing version ${from}…`;
-    r.pages[index].startedAt = new Date(started).toISOString();
-  });
+  await mutate(runId, (r) => startWorking(r.pages[index], message(from), started));
   try {
     const book = await loadBook(run.bookId);
     const page = book.pages.find((p) => p.index === index);
     if (!page) throw new Error(`Page ${index} is no longer in the book`);
     const form = new FormData();
-    const spec = await bookSpec(book, form, [page.image]);
-    form.set('spec', JSON.stringify({ ...spec, index, characterIds: run.cast.map((c) => c.characterId), fix: note }));
+    const spec = { ...(await bookSpec(book, form, [page.image])), index };
     form.set('current', await uploadable(await readFile(current)));
-    const art = await apiBlob('/api/ai/touchup', { method: 'POST', body: form });
-    const file = await saveFile(localKey(`runs/${runId}/pages/${String(index).padStart(2, '0')}-${Date.now().toString(36)}.jpg`), art);
-    await mutate(runId, (r) => {
-      const s = r.pages[index];
-      s.attempts.push({ file, at: new Date().toISOString(), ms: Date.now() - started, fix: `Edited version ${from}: ${note ?? 'clothing matched to the original'}` });
-      s.selected = s.attempts.length - 1;
-      s.status = 'done';
-      s.message = null;
-      r.images++;
-    });
-  } catch (err) {
-    await mutate(runId, (r) => {
-      r.pages[index].status = 'done';
-      r.pages[index].message = null;
-    });
-    throw err;
-  }
-}
-
-/**
- * "Match the fade" on a see-through page: the version a page shows keeps its faces and poses, and
- * its people are faded to the original's strength (see refadePageStep). A new version; the old
- * one stays. Not queued: one call (more if a plate moves the scene), now.
- */
-export async function refadePage(runId: string, index: number): Promise<void> {
-  const started = Date.now();
-  const run = await requireRun(runId);
-  const step = run.pages[index];
-  const current = step && chosenFile(step);
-  if (!current) throw new Error('This page has no version to fade yet');
-  if (step.status === 'working' || step.status === 'queued') throw new Error('That page is already being made');
-  const from = chosenIndex(step) + 1;
-  await mutate(runId, (r) => {
-    r.pages[index].status = 'working';
-    r.pages[index].message = `Matching the fade of version ${from}…`;
-    r.pages[index].startedAt = new Date(started).toISOString();
-  });
-  try {
-    const book = await loadBook(run.bookId);
-    const page = book.pages.find((p) => p.index === index);
-    if (!page) throw new Error(`Page ${index} is no longer in the book`);
-    const cast = run.cast.filter((c) => page.cast[c.characterId]?.present && chosenFile(c));
-    const form = new FormData();
-    const spec = await bookSpec(book, form, [page.image]);
-    form.set('spec', JSON.stringify({ ...spec, index, characterIds: cast.map((c) => c.characterId) }));
-    form.set('current', await uploadable(await readFile(current)));
-    for (const [n, c] of cast.entries()) form.set(`drawing-${n}`, await uploadable(await readFile(chosenFile(c)!)));
+    const endpoint = await send(run, page, form, spec);
     let answer: { blob: Blob; calls: number };
     try {
-      answer = await apiImage('/api/ai/refade', { method: 'POST', body: form });
+      answer = await apiImage(endpoint, { method: 'POST', body: form });
     } catch (err) {
       if (err instanceof ApiError && err.calls) await mutate(runId, (r) => void (r.images += err.calls));
       throw err;
@@ -503,7 +461,7 @@ export async function refadePage(runId: string, index: number): Promise<void> {
     const file = await saveFile(localKey(`runs/${runId}/pages/${String(index).padStart(2, '0')}-${Date.now().toString(36)}.jpg`), answer.blob);
     await mutate(runId, (r) => {
       const s = r.pages[index];
-      s.attempts.push({ file, at: new Date().toISOString(), ms: Date.now() - started, fix: `Version ${from}, faded to match the original` });
+      s.attempts.push({ file, at: new Date().toISOString(), ms: Date.now() - started, fix: label(from) });
       s.selected = s.attempts.length - 1;
       s.status = 'done';
       s.message = null;
@@ -516,6 +474,45 @@ export async function refadePage(runId: string, index: number): Promise<void> {
     });
     throw err;
   }
+}
+
+/**
+ * The owner's "Edit this version": the version a page shows goes back to the AI with the book's
+ * own art beside it, and only what `fix` asks changes (by default the clothing, back to the
+ * original's colours). One call.
+ */
+export async function touchUpPage(runId: string, index: number, fix?: string): Promise<void> {
+  const note = fix?.trim().slice(0, FIX_MAX) || null;
+  return newVersionNow(
+    runId,
+    index,
+    (from) => `Editing version ${from}…`,
+    async (run, _page, form, spec) => {
+      form.set('spec', JSON.stringify({ ...spec, characterIds: run.cast.map((c) => c.characterId), fix: note }));
+      return '/api/ai/touchup';
+    },
+    (from) => `Edited version ${from}: ${note ?? 'clothing matched to the original'}`
+  );
+}
+
+/**
+ * "Match the fade" on a see-through page: the version a page shows keeps its faces and poses, and
+ * its people are faded to the original's strength (see refadePageStep). One call (more if a plate
+ * moves the scene; none if that version's plate is cached).
+ */
+export async function refadePage(runId: string, index: number): Promise<void> {
+  return newVersionNow(
+    runId,
+    index,
+    (from) => `Matching the fade of version ${from}…`,
+    async (run, page, form, spec) => {
+      const cast = run.cast.filter((c) => page.cast[c.characterId]?.present && chosenFile(c));
+      form.set('spec', JSON.stringify({ ...spec, characterIds: cast.map((c) => c.characterId) }));
+      for (const [n, c] of cast.entries()) form.set(`drawing-${n}`, await uploadable(await readFile(chosenFile(c)!)));
+      return '/api/ai/refade';
+    },
+    (from) => `Version ${from}, faded to match the original`
+  );
 }
 
 /** The customer orders the full book: every other page with their characters joins the run. */

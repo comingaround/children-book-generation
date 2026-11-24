@@ -618,13 +618,13 @@ export function BookEditor({ initial, readOnly = false }: { initial: Book; readO
                     />
                     <span className={ui.help}>Objects the characters touch or overlap. Every redraw leaves them exactly as they are.</span>
                   </label>
-                  <div className={ui.field}>
-                    <label className={ui.switchRow}>
-                      <span className={ui.label}>The people are see-through</span>
-                      <input type="checkbox" className={ui.switch} checked={!!page.seeThrough} disabled={readOnly} onChange={(ev) => setPage(page.index, { seeThrough: ev.target.checked ? 50 : 0 })} />
-                    </label>
-                    <span className={ui.help}>For pages where the background shows through the characters, like a faded memory. Each redraw measures how faded the original people are, from top to toe, and fades the new ones to match. Pages left off are checked too: people clearly fainter than the redraw are faded the same way.</span>
-                  </div>
+                  <Toggle
+                    disabled={readOnly}
+                    label="The people are see-through"
+                    help="For pages where the background shows through the characters, like a faded memory. Each redraw measures how faded the original people are, from top to toe, and fades the new ones to match. Pages left off are checked too: people clearly fainter than the redraw are faded the same way."
+                    checked={!!page.seeThrough}
+                    onChange={(on) => setPage(page.index, { seeThrough: on ? 50 : 0 })}
+                  />
                   {page.lines.length > 0 && (
                     <div className={ui.field}>
                       <span className={ui.label}>Text on the page</span>

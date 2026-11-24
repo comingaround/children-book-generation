@@ -4,7 +4,7 @@ import { bookFrom } from '@/lib/book-input';
 import { HttpError, respond } from '@/lib/http-error';
 import { forModel } from '@/lib/images';
 import { specOf } from '@/lib/upload';
-import { draftImages, type Book, type Box } from '@/lib/types';
+import { clampSeeThrough, draftImages, type Book, type Box } from '@/lib/types';
 
 export const maxDuration = 120;
 
@@ -57,6 +57,6 @@ export async function POST(req: Request) {
       const [ymin, xmin, ymax, xmax] = t.map((n) => Math.min(Math.max(n / 10, 0), 100));
       return xmax > xmin && ymax > ymin ? [{ x: r(xmin), y: r(ymin), w: r(xmax - xmin), h: r(ymax - ymin) }] : [];
     });
-    return Response.json({ scenePrompt: draft.scenePrompt, cast, textBoxes, keepObjects: draft.keepObjects ?? '', seeThrough: Math.min(90, Math.max(0, Math.round(draft.seeThrough ?? 0))) });
+    return Response.json({ scenePrompt: draft.scenePrompt, cast, textBoxes, keepObjects: draft.keepObjects ?? '', seeThrough: clampSeeThrough(draft.seeThrough ?? 0) });
   });
 }

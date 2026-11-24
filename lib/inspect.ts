@@ -1,13 +1,11 @@
 import 'server-only';
 
-import { createHash } from 'node:crypto';
-
 import sharp from 'sharp';
 
 import { generateJson, type InlineImage } from './ai/gemini';
 import { faceOnOriginalPrompt, faceSchema, inspectPrompt, inspectSchema, type FaceAnswer, type InspectAnswer } from './ai/prompts';
+import { cachedJson, sha1 } from './cache';
 import { forModel } from './images';
-import { readDataFile, writeDataFile } from './store';
 import type { Box } from './types';
 
 /**
@@ -18,9 +16,13 @@ import type { Box } from './types';
  * mother's cheek (11). None of them moved the scene or the bodies enough for the older checks.
  */
 
-/** The image with each box outlined and numbered 1..n, for the text model. */
+/** Longest side of the numbered image the text model reads. */
+const NUMBERED_MAX = 1536;
+
+/** The image with each box outlined and numbered 1..n, for the text model: shrunk first, marked, one JPEG. */
 async function numbered(image: Buffer, boxes: Box[]): Promise<InlineImage> {
-  const { width = 0, height = 0 } = await sharp(image).metadata();
+  const { data: small, info } = await sharp(image).rotate().resize(NUMBERED_MAX, NUMBERED_MAX, { fit: 'inside', withoutEnlargement: true }).flatten({ background: '#ffffff' }).png().toBuffer({ resolveWithObject: true });
+  const { width, height } = info;
   const stroke = Math.max(3, Math.round(Math.min(width, height) * 0.004));
   const font = Math.max(20, Math.round(Math.min(width, height) * 0.035));
   const marks = boxes.map((b, i) => {
@@ -30,7 +32,7 @@ async function numbered(image: Buffer, boxes: Box[]): Promise<InlineImage> {
       <text x="${x + font * 0.55}" y="${y + font}" font-size="${font}" font-family="Arial" font-weight="bold" fill="#fff" text-anchor="middle">${i + 1}</text>`;
   });
   const svg = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">${marks.join('')}</svg>`);
-  return forModel(await sharp(image).composite([{ input: svg }]).jpeg({ quality: 90 }).toBuffer(), 1536);
+  return { data: await sharp(small).composite([{ input: svg }]).jpeg({ quality: 90, mozjpeg: true }).toBuffer(), mimeType: 'image/jpeg' };
 }
 
 /** [ymin, xmin, ymax, xmax] in 0–1000 as a Box in %, or null. */
@@ -49,24 +51,13 @@ const facesCache = new Map<string, Promise<(Box | null)[]>>();
  * null for a box whose face can't be seen (from behind); all null if the read fails.
  */
 export function facesOnOriginal(original: Buffer, boxes: Box[]): Promise<(Box | null)[]> {
-  const key = createHash('sha1').update(original).update(JSON.stringify(boxes)).digest('hex');
-  let faces = facesCache.get(key);
-  if (!faces) {
-    faces = (async () => {
-      const file = `cache/faces/${key}.json`;
-      const saved = process.env.VERCEL ? null : await readDataFile(file).catch(() => null);
-      if (saved) return JSON.parse(saved.toString()) as (Box | null)[];
-      const answer = await generateJson<FaceAnswer>([await numbered(original, boxes)], faceOnOriginalPrompt(boxes.length), faceSchema);
-      const found = boxes.map((_, i) => {
-        const a = answer.people.find((p) => p.box === i + 1);
-        return a?.faceVisible ? boxOf(a.face) : null;
-      });
-      if (!process.env.VERCEL) await writeDataFile(file, Buffer.from(JSON.stringify(found))).catch(() => {});
-      return found;
-    })();
-    facesCache.set(key, faces);
-    faces.catch(() => facesCache.delete(key));
-  }
+  const faces = cachedJson(facesCache, 'faces', sha1(original, JSON.stringify(boxes), faceOnOriginalPrompt(boxes.length), JSON.stringify(faceSchema)), async () => {
+    const answer = await generateJson<FaceAnswer>([await numbered(original, boxes)], faceOnOriginalPrompt(boxes.length), faceSchema);
+    return boxes.map((_, i) => {
+      const a = answer.people.find((p) => p.box === i + 1);
+      return a?.faceVisible ? boxOf(a.face) : null;
+    });
+  });
   return faces.catch((err) => (console.error('[inspect] faces on the original:', (err as Error).message), boxes.map(() => null)));
 }
 
@@ -79,17 +70,20 @@ const FACE_SCALE_LIMIT = 1.28;
 /** Face centre moved, in original face heights. */
 const FACE_MOVE_LIMIT = 0.6;
 
+/** Approved drawings as inspectAnswer shows them: made once per page, not once per try. */
+export const forInspect = (drawings: Buffer[]) => Promise.all(drawings.map((d) => forModel(d, 768)));
+
 /**
  * What is wrong with an answer, in words for the log; [] if nothing. `boxes` are the people
- * redrawn in this call (in `answer`'s %), `drawings` their approved drawings in the same order,
+ * redrawn in this call (in `answer`'s %), `drawings` their approved drawings in the same order (forInspect),
  * `faces` the original's (facesOnOriginal), `hairs` the hair study of each drawing in words (a tie
  * in a small copy of a drawing is easily missed: Mama's low ponytail, page 11, 24 Nov, was called
  * extra). If the text model fails, the answer passes: a check that can't run must not cost a page.
  */
-export async function inspectAnswer(answer: Buffer, boxes: Box[], drawings: Buffer[], faces: (Box | null)[], hairs: (string | undefined)[] = []): Promise<string[]> {
+export async function inspectAnswer(answer: Buffer, boxes: Box[], drawings: InlineImage[], faces: (Box | null)[], hairs: (string | undefined)[] = []): Promise<string[]> {
   let read: InspectAnswer;
   try {
-    const images = [await numbered(answer, boxes), ...(await Promise.all(drawings.map((d) => forModel(d, 768))))];
+    const images = [await numbered(answer, boxes), ...drawings];
     read = await generateJson<InspectAnswer>(images, inspectPrompt(boxes.length, hairs), inspectSchema);
   } catch (err) {
     console.error('[inspect]', (err as Error).message);
@@ -107,7 +101,6 @@ export async function inspectAnswer(answer: Buffer, boxes: Box[], drawings: Buff
     if (was && now) {
       const scale = Math.sqrt((now.w * now.h) / (was.w * was.h));
       const moved = Math.hypot(now.x + now.w / 2 - (was.x + was.w / 2), now.y + now.h / 2 - (was.y + was.h / 2)) / was.h;
-      if (process.env.INSPECT_LOG_FACES) console.log(`[inspect] box ${i + 1} face ${Math.round(scale * 100)}%, moved ${moved.toFixed(2)}`);
       if (scale > FACE_SCALE_LIMIT || scale < 1 / FACE_SCALE_LIMIT) problems.push(`box ${i + 1}'s face is ${Math.round(scale * 100)}% of the original's size`);
       if (moved > FACE_MOVE_LIMIT) problems.push(`box ${i + 1}'s face moved ${moved.toFixed(1)} face heights`);
     }

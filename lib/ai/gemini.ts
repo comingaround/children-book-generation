@@ -178,10 +178,11 @@ interface Envelope {
 /** Called before each retry, so a run can show "AI busy, retrying 2/5". */
 export type OnRetry = (attempt: number, of: number, status: number) => void;
 
-async function call(model: string, images: InlineImage[], prompt: string, generationConfig: object, onRetry?: OnRetry): Promise<Envelope> {
+/** `by`: when the answer must be in, if sooner than GENERATE_TIMEOUT_MS from now. */
+async function call(model: string, images: InlineImage[], prompt: string, generationConfig: object, onRetry?: OnRetry, by = Infinity): Promise<Envelope> {
   const { url, headers } = await endpoint(model);
   const started = Date.now();
-  const deadline = started + GENERATE_TIMEOUT_MS;
+  const deadline = Math.min(started + GENERATE_TIMEOUT_MS, by);
   const body = JSON.stringify({
     contents: [
       {
@@ -242,7 +243,7 @@ function noOutput(model: string, env: Envelope, what: string): GeminiError {
 export async function generateImage(
   images: InlineImage[],
   prompt: string,
-  opts: { aspectRatio?: string; imageSize?: '1K' | '2K' | '4K'; onRetry?: OnRetry } = {}
+  opts: { aspectRatio?: string; imageSize?: '1K' | '2K' | '4K'; onRetry?: OnRetry; deadline?: number } = {}
 ): Promise<Buffer> {
   const model = process.env.GEMINI_IMAGE_MODEL || 'gemini-3-pro-image';
   const env = await call(
@@ -253,7 +254,8 @@ export async function generateImage(
       responseModalities: ['IMAGE'],
       imageConfig: { imageSize: opts.imageSize ?? '2K', ...(opts.aspectRatio ? { aspectRatio: opts.aspectRatio } : {}) },
     },
-    opts.onRetry
+    opts.onRetry,
+    opts.deadline
   );
   for (const part of env.candidates?.[0]?.content?.parts ?? []) {
     if (part.inlineData?.data) return Buffer.from(part.inlineData.data, 'base64');

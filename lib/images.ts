@@ -16,6 +16,55 @@ const RATIOS: [string, number][] = [
 
 const jpeg = (img: Sharp) => img.jpeg({ quality: 90, mozjpeg: true }).toBuffer();
 
+/** Perceived brightness of an RGB pixel. */
+const lum = (r: number, g: number, b: number) => 0.299 * r + 0.587 * g + 0.114 * b;
+
+/** RGB pixels, one byte per channel, with the image's size. */
+export interface Raw {
+  data: Buffer;
+  width: number;
+  height: number;
+}
+
+/** The image as RGB pixels at `width` x `height` (sharp's default cover fit). */
+export async function rawAt(input: Buffer, width: number, height: number): Promise<Raw> {
+  return { data: await sharp(input).resize(width, height).removeAlpha().raw().toBuffer(), width, height };
+}
+
+/** The image squeezed to S x S RGB pixels, for measuring. */
+const smallRgb = (input: Buffer, S: number) => sharp(input).resize(S, S, { fit: 'fill' }).removeAlpha().raw().toBuffer();
+
+/** A light 1-2-1 smoothing across bands, ends clamped, so no band edge shows. */
+const smooth121 = (values: number[]) => values.map((v, b) => (values[Math.max(0, b - 1)] + 2 * v + values[Math.min(values.length - 1, b + 1)]) / 4);
+
+/** A band profile's value at pixel row `y`, band centres interpolated, for a body starting at `top`. */
+function bandAt(profile: number[], y: number, top: number, bandHeight: number): number {
+  const last = profile.length - 1;
+  const at = Math.min(last, Math.max(0, (y - top) / bandHeight - 0.5));
+  const b = Math.floor(at);
+  return profile[b] + (profile[Math.min(last, b + 1)] - profile[b]) * (at - b);
+}
+
+/**
+ * Where two same-sized RGB images differ, in broad patches: the largest channel difference,
+ * blurred by ~0.6% of the picture, so a 2-px line 100 levels off spreads to under 10 while a body
+ * stays high. extractChannel: sharp hands a one-channel blur back as three channels, which read
+ * one byte a pixel put the top third of the picture's differences over the whole of it.
+ */
+async function broadDiff(a: Buffer, b: Buffer, width: number, height: number): Promise<Buffer> {
+  const diff = Buffer.alloc(width * height);
+  for (let i = 0, j = 0; i < diff.length; i++, j += 3) diff[i] = Math.max(Math.abs(a[j] - b[j]), Math.abs(a[j + 1] - b[j + 1]), Math.abs(a[j + 2] - b[j + 2]));
+  return sharp(diff, { raw: { width, height, channels: 1 } }).blur(Math.max(2, Math.min(width, height) * 0.006)).extractChannel(0).raw().toBuffer();
+}
+
+/**
+ * A person's areas with the paste's soft edge, one byte a pixel. The mask is white on
+ * transparent, so its shape is the alpha channel (greyscale() keeps alpha, two bytes a pixel, and
+ * read as one it faded only part of the body).
+ */
+const areaAlpha = (areas: Box[], width: number, height: number) =>
+  sharp(areaMask(areas, width, height, 0, 'out')).resize(width, height).ensureAlpha().extractChannel(3).raw().toBuffer();
+
 /** Upright, downscaled JPEG for a model input. */
 export async function forModel(input: Buffer, max = MODEL_MAX): Promise<InlineImage> {
   const data = await jpeg(sharp(input).rotate().resize(max, max, { fit: 'inside', withoutEnlargement: true }).flatten({ background: '#ffffff' }));
@@ -131,9 +180,9 @@ const AI_BUBBLE_PAD = 10;
  * Text with no bubble behind it (a cover title on the art): the box with a TEXT_PAD margin, as
  * before.
  */
-export async function textMask(original: Buffer, result: Buffer, boxes: Box[], width: number, height: number): Promise<Buffer> {
-  const o = await sharp(original).resize(width, height, { fit: 'fill' }).removeAlpha().raw().toBuffer();
-  const a = await sharp(result).resize(width, height, { fit: 'fill' }).removeAlpha().raw().toBuffer();
+export async function textMask(original: Raw, result: Raw, boxes: Box[]): Promise<Buffer> {
+  const { width, height, data: o } = original;
+  const a = result.data;
   const mask = Buffer.alloc(width * height);
   const px = (b: Box) => ({
     x0: Math.max(0, Math.floor(((b.x - TEXT_PAD) / 100) * width)),
@@ -145,12 +194,12 @@ export async function textMask(original: Buffer, result: Buffer, boxes: Box[], w
     tx1: Math.min(width, Math.ceil(((b.x + b.w) / 100) * width)),
     ty1: Math.min(height, Math.ceil(((b.y + b.h) / 100) * height)),
   });
-  const lum = (j: number) => 0.299 * o[j] + 0.587 * o[j + 1] + 0.114 * o[j + 2];
+  const lumAt = (j: number) => lum(o[j], o[j + 1], o[j + 2]);
   for (const box of boxes) {
     const r = px(box);
     // The bubble's colour: the lighter part of the text box (the letters are the darker part).
     const ls: number[] = [];
-    for (let y = r.ty0; y < r.ty1; y += 2) for (let x = r.tx0; x < r.tx1; x += 2) ls.push(lum((y * width + x) * 3));
+    for (let y = r.ty0; y < r.ty1; y += 2) for (let x = r.tx0; x < r.tx1; x += 2) ls.push(lumAt((y * width + x) * 3));
     ls.sort((a, b) => a - b);
     const cut = ls[Math.floor(ls.length * 0.6)] ?? 255;
     const sum = [0, 0, 0];
@@ -158,7 +207,7 @@ export async function textMask(original: Buffer, result: Buffer, boxes: Box[], w
     for (let y = r.ty0; y < r.ty1; y += 2) {
       for (let x = r.tx0; x < r.tx1; x += 2) {
         const j = (y * width + x) * 3;
-        if (lum(j) < cut) continue;
+        if (lumAt(j) < cut) continue;
         sum[0] += o[j];
         sum[1] += o[j + 1];
         sum[2] += o[j + 2];
@@ -172,7 +221,7 @@ export async function textMask(original: Buffer, result: Buffer, boxes: Box[], w
     let all = 0;
     for (let y = r.ty0; y < r.ty1; y += 2) for (let x = r.tx0; x < r.tx1; x += 2, all++) if (like((y * width + x) * 3)) even++;
     // No even, light background behind the letters: no bubble, the padded rectangle.
-    if (!all || even / all < 0.55 || 0.299 * bubble[0] + 0.587 * bubble[1] + 0.114 * bubble[2] < 150) {
+    if (!all || even / all < 0.55 || lum(bubble[0], bubble[1], bubble[2]) < 150) {
       for (let y = r.y0; y < r.y1; y++) mask.fill(255, y * width + r.x0, y * width + r.x1);
       continue;
     }
@@ -232,17 +281,17 @@ export async function textMask(original: Buffer, result: Buffer, boxes: Box[], w
     .toBuffer();
 }
 
-/** `result` with `original` put back where `mask` (one channel, 0–255) says. A PNG. */
-export async function keepOriginalIn(result: Buffer, original: Buffer, mask: Buffer): Promise<Buffer> {
-  const { data: r, info } = await sharp(result).removeAlpha().raw().toBuffer({ resolveWithObject: true });
-  const o = await sharp(original).resize(info.width, info.height, { fit: 'fill' }).removeAlpha().raw().toBuffer();
+/** `result` with `original` (the same size) put back where `mask` (one channel, 0–255) says. A PNG. */
+export async function keepOriginalIn(result: Raw, original: Raw, mask: Buffer): Promise<Buffer> {
+  const { data: r, width, height } = result;
+  const o = original.data;
   const out = Buffer.from(r);
   for (let i = 0, j = 0; i < mask.length; i++, j += 3) {
     const m = mask[i] / 255;
     if (!m) continue;
     for (let c = 0; c < 3; c++) out[j + c] = Math.round(r[j + c] + m * (o[j + c] - r[j + c]));
   }
-  return sharp(out, { raw: { width: info.width, height: info.height, channels: 3 } }).png().toBuffer();
+  return sharp(out, { raw: { width, height, channels: 3 } }).png().toBuffer();
 }
 
 /**
@@ -264,7 +313,7 @@ export async function softenToOriginal(original: Buffer, drawn: Buffer, people: 
   let papers = 0;
   for (let j = 0; j < o.length; j += 3 * 7) {
     const [r, g, b] = [o[j], o[j + 1], o[j + 2]];
-    if (0.299 * r + 0.587 * g + 0.114 * b > 205 && Math.max(r, g, b) - Math.min(r, g, b) < 25) {
+    if (lum(r, g, b) > 205 && Math.max(r, g, b) - Math.min(r, g, b) < 25) {
       paper[0] += r;
       paper[1] += g;
       paper[2] += b;
@@ -272,10 +321,8 @@ export async function softenToOriginal(original: Buffer, drawn: Buffer, people: 
     }
   }
   const [pr, pg, pb] = papers > 100 ? paper.map((c) => c / papers) : [244, 241, 234];
-  // Where the redraw changed the picture, in broad patches (the same blur as fadePeople).
-  const diff = Buffer.alloc(width * height);
-  for (let i = 0, j = 0; i < diff.length; i++, j += 3) diff[i] = Math.max(Math.abs(d[j] - o[j]), Math.abs(d[j + 1] - o[j + 1]), Math.abs(d[j + 2] - o[j + 2]));
-  const broad = await sharp(diff, { raw: { width, height, channels: 1 } }).blur(Math.max(2, Math.min(width, height) * 0.006)).extractChannel(0).raw().toBuffer();
+  // Where the redraw changed the picture, in broad patches.
+  const broad = await broadDiff(d, o, width, height);
   const ink = (a: Buffer, j: number) => Math.hypot(a[j] - pr, a[j + 1] - pg, a[j + 2] - pb);
   const colour = (a: Buffer, j: number) => Math.max(a[j], a[j + 1], a[j + 2]) - Math.min(a[j], a[j + 1], a[j + 2]);
 
@@ -283,7 +330,7 @@ export async function softenToOriginal(original: Buffer, drawn: Buffer, people: 
   const calm = new Float32Array(width * height).fill(1);
   const profiles: { ink: number; colour: number }[][] = [];
   for (const person of people) {
-    const inArea = await sharp(areaMask(person.areas, width, height, 0, 'out')).resize(width, height).ensureAlpha().extractChannel(3).raw().toBuffer();
+    const inArea = await areaAlpha(person.areas, width, height);
     // The whole person, crown to feet, in bands.
     const top = (Math.min(...person.areas.map((a) => a.y)) / 100) * height;
     const bottom = (Math.max(...person.areas.map((a) => a.y + a.h)) / 100) * height;
@@ -311,18 +358,12 @@ export async function softenToOriginal(original: Buffer, drawn: Buffer, people: 
       const c = s.cd ? Math.min(1, Math.max(0.4, s.co / (k * s.cd))) : 1;
       return { ink: k, colour: c };
     });
-    const smooth = raw.map((r, b) => {
-      const n = (f: (q: { ink: number; colour: number }) => number) => (f(raw[Math.max(0, b - 1)]) + 2 * f(r) + f(raw[Math.min(FADE_BANDS - 1, b + 1)])) / 4;
-      return { ink: n((q) => q.ink), colour: n((q) => q.colour) };
-    });
-    profiles.push(smooth);
-    const last = FADE_BANDS - 1;
+    const inks = smooth121(raw.map((q) => q.ink));
+    const colours = smooth121(raw.map((q) => q.colour));
+    profiles.push(inks.map((ink, b) => ({ ink, colour: colours[b] })));
     for (let y = 0; y < height; y++) {
-      const at = Math.min(last, Math.max(0, (y - top) / bandHeight - 0.5));
-      const b = Math.floor(at);
-      const t = at - b;
-      const k = smooth[b].ink + (smooth[Math.min(last, b + 1)].ink - smooth[b].ink) * t;
-      const c = smooth[b].colour + (smooth[Math.min(last, b + 1)].colour - smooth[b].colour) * t;
+      const k = bandAt(inks, y, top, bandHeight);
+      const c = bandAt(colours, y, top, bandHeight);
       for (let x = 0, i = y * width; x < width; x++, i++) {
         if (!inArea[i]) continue;
         const m = inArea[i] / 255;
@@ -337,7 +378,7 @@ export async function softenToOriginal(original: Buffer, drawn: Buffer, people: 
     const r = pr + keep[i] * (d[j] - pr);
     const g = pg + keep[i] * (d[j + 1] - pg);
     const b = pb + keep[i] * (d[j + 2] - pb);
-    const l = 0.299 * r + 0.587 * g + 0.114 * b;
+    const l = lum(r, g, b);
     out[j] = Math.round(Math.min(255, Math.max(0, l + calm[i] * (r - l))));
     out[j + 1] = Math.round(Math.min(255, Math.max(0, l + calm[i] * (g - l))));
     out[j + 2] = Math.round(Math.min(255, Math.max(0, l + calm[i] * (b - l))));
@@ -354,12 +395,11 @@ const FADED_BELOW = 0.7;
  * as colourful and contrasty as the drawn ones (Noah & Lina: 0.87–1.14 on 12 pages), while
  * solid people drawn over faded ones are about twice as strong (page 12: ~0.5). Both colour and
  * contrast must be low for some person, since a redraw can change one of them (page 11: 1.37 and
- * 0.75). Returns the lower of the two per person, for the log.
+ * 0.75). Returns the higher of the two per person (low only when both are), for the log.
  */
 export async function looksFaded(original: Buffer, drawn: Buffer, bodies: Box[]): Promise<{ faded: boolean; strength: number[] }> {
   const S = 512;
-  const rgb = (b: Buffer) => sharp(b).resize(S, S, { fit: 'fill' }).removeAlpha().raw().toBuffer();
-  const [o, d] = await Promise.all([rgb(original), rgb(drawn)]);
+  const [o, d] = await Promise.all([smallRgb(original, S), smallRgb(drawn, S)]);
   const measure = (px: Buffer, inside: Uint8Array) => {
     let chroma = 0;
     let sum = 0;
@@ -369,7 +409,7 @@ export async function looksFaded(original: Buffer, drawn: Buffer, bodies: Box[])
       if (!inside[i]) continue;
       const [r, g, b] = [px[i * 3], px[i * 3 + 1], px[i * 3 + 2]];
       chroma += Math.max(r, g, b) - Math.min(r, g, b);
-      const l = 0.299 * r + 0.587 * g + 0.114 * b;
+      const l = lum(r, g, b);
       sum += l;
       sq += l * l;
       n++;
@@ -380,7 +420,7 @@ export async function looksFaded(original: Buffer, drawn: Buffer, bodies: Box[])
     const inside = areaGrid([body], S);
     const [a, b] = [measure(o, inside), measure(d, inside)];
     if (!a || !b || !b.chroma || !b.contrast) return 1;
-    return Math.min(a.chroma / b.chroma, a.contrast / b.contrast) < FADED_BELOW ? Math.max(a.chroma / b.chroma, a.contrast / b.contrast) : 1;
+    return Math.max(a.chroma / b.chroma, a.contrast / b.contrast);
   });
   return { faded: strength.some((s) => s < FADED_BELOW), strength };
 }
@@ -400,8 +440,7 @@ const FADE_BANDS = 6;
  */
 export async function measureOpacity(original: Buffer, drawn: Buffer, plate: Buffer, people: FadePerson[]): Promise<(number[] | null)[]> {
   const S = 256;
-  const rgb = (b: Buffer) => sharp(b).resize(S, S, { fit: 'fill' }).removeAlpha().raw().toBuffer();
-  const [o, d, p] = await Promise.all([rgb(original), rgb(drawn), rgb(plate)]);
+  const [o, d, p] = await Promise.all([smallRgb(original, S), smallRgb(drawn, S), smallRgb(plate, S)]);
   return people.map(({ body }) => {
     const inside = areaGrid([body], S);
     const top = (body.y / 100) * S;
@@ -425,7 +464,7 @@ export async function measureOpacity(original: Buffer, drawn: Buffer, plate: Buf
     }
     const measured = num.map((n, b) => (count[b] >= 40 && den[b] ? Math.min(1, Math.max(0.1, n / den[b])) : null));
     if (measured.every((a) => a === null)) return null;
-    // Gaps take the nearest measured band; then a light 1-2-1 smoothing, so no band edge shows.
+    // Gaps take the nearest measured band; then smoothed.
     const filled = measured.map((a, b) => {
       if (a !== null) return a;
       for (let k = 1; k < FADE_BANDS; k++) {
@@ -434,7 +473,7 @@ export async function measureOpacity(original: Buffer, drawn: Buffer, plate: Buf
       }
       return 1;
     });
-    return filled.map((a, b) => (filled[Math.max(0, b - 1)] + 2 * a + filled[Math.min(FADE_BANDS - 1, b + 1)]) / 4);
+    return smooth121(filled);
   });
 }
 
@@ -450,26 +489,16 @@ export async function fadePeople(drawn: Buffer, plate: Buffer, people: (FadePers
   const { data: d, info } = await sharp(drawn).removeAlpha().raw().toBuffer({ resolveWithObject: true });
   const { width, height } = info;
   const p = await sharp(plate).resize(width, height, { fit: 'fill' }).removeAlpha().raw().toBuffer();
-  const diff = Buffer.alloc(width * height);
-  for (let i = 0, j = 0; i < diff.length; i++, j += 3) diff[i] = Math.max(Math.abs(d[j] - p[j]), Math.abs(d[j + 1] - p[j + 1]), Math.abs(d[j + 2] - p[j + 2]));
-  // A blur of ~0.6% of the picture: a 2-px line 100 levels off spreads to under 10, a body stays high.
-  // extractChannel: sharp hands a one-channel blur back as three channels, which read one byte a
-  // pixel put the top third of the picture's differences over the whole of it.
-  const broad = await sharp(diff, { raw: { width, height, channels: 1 } }).blur(Math.max(2, Math.min(width, height) * 0.006)).extractChannel(0).raw().toBuffer();
+  const broad = await broadDiff(d, p, width, height);
   // How much of the way to the plate each pixel goes: the most any person asks for there.
   const toPlate = new Float32Array(width * height);
   for (const person of people) {
-    // The mask is white on transparent: its shape is the alpha channel (greyscale() keeps alpha,
-    // two bytes a pixel, and read as one it faded only part of the body).
-    const inArea = await sharp(areaMask(person.areas, width, height, 0, 'out')).resize(width, height).ensureAlpha().extractChannel(3).raw().toBuffer();
+    const inArea = await areaAlpha(person.areas, width, height);
     const top = (person.body.y / 100) * height;
     const bandHeight = ((person.body.h / 100) * height) / person.profile.length;
-    const last = person.profile.length - 1;
     for (let y = 0; y < height; y++) {
       // Band centres interpolated, so the strength changes smoothly down the body.
-      const at = Math.min(last, Math.max(0, (y - top) / bandHeight - 0.5));
-      const b = Math.floor(at);
-      const opacity = person.profile[b] + (person.profile[Math.min(last, b + 1)] - person.profile[b]) * (at - b);
+      const opacity = bandAt(person.profile, y, top, bandHeight);
       for (let x = 0, i = y * width; x < width; x++, i++) {
         if (!inArea[i]) continue;
         toPlate[i] = Math.max(toPlate[i], (inArea[i] / 255) * (1 - opacity));
@@ -664,8 +693,7 @@ export async function removeCast(original: Buffer, answer: Buffer, areas: Box[],
   const W = meta.width!;
   const H = meta.height!;
   const S = 256;
-  const small = (b: Buffer) => sharp(b).resize(S, S, { fit: 'fill' }).removeAlpha().raw().toBuffer();
-  const [o, a0] = await Promise.all([small(original), small(answer)]);
+  const [o, a0] = await Promise.all([smallRgb(original, S), smallRgb(answer, S)]);
 
   // 1 · background
   const inside = areaGrid(areas, S);
@@ -745,9 +773,24 @@ export async function removeCast(original: Buffer, answer: Buffer, areas: Box[],
  * the picture is outside the people to judge.
  */
 export async function sceneDrift(original: Buffer, answer: Buffer, areas: Box[]): Promise<number | null> {
-  const S = 96;
-  const grey = (b: Buffer) => sharp(b).removeAlpha().resize(S, S, { fit: 'fill' }).greyscale().blur(1.5).raw().toBuffer();
-  const [a, b] = await Promise.all([grey(original), grey(answer)]);
+  return sceneDriftOf(await driftGreys(original, answer), areas);
+}
+
+/** Both drift checks (sceneDrift, people below), from one shrinking of the two images. */
+export async function drifts(original: Buffer, answer: Buffer, areas: Box[], boxes: Box[], exclude: Box[] = []): Promise<{ scene: number | null; people: number }> {
+  const greys = await driftGreys(original, answer);
+  return { scene: sceneDriftOf(greys, areas), people: peopleDriftOf(greys, boxes, exclude) };
+}
+
+/** The grid the drift checks compare on. */
+const DRIFT_S = 96;
+
+/** Both images shrunk to DRIFT_S px, grey and blurred: texture and brushwork no longer count. */
+const driftGreys = (original: Buffer, answer: Buffer) =>
+  Promise.all([original, answer].map((b) => sharp(b).removeAlpha().resize(DRIFT_S, DRIFT_S, { fit: 'fill' }).greyscale().blur(1.5).raw().toBuffer()));
+
+function sceneDriftOf([a, b]: Buffer[], areas: Box[]): number | null {
+  const S = DRIFT_S;
   const inside = areaGrid(areas, S);
   let sum = 0;
   let n = 0;
@@ -767,14 +810,12 @@ export async function sceneDrift(original: Buffer, answer: Buffer, areas: Box[])
  * hair may now fall (a ponytail over the chest, curls down the back where the original had a bun)
  * is no sign of anyone moving; without it, Noah & Lina pages 9 and 11 were rejected every time.
  */
-export async function peopleDrift(original: Buffer, answer: Buffer, boxes: Box[], exclude: Box[] = []): Promise<number> {
-  const S = 96;
-  const grey = (b: Buffer) => sharp(b).removeAlpha().resize(S, S, { fit: 'fill' }).greyscale().blur(1.5).raw().toBuffer();
-  const [a, b] = await Promise.all([grey(original), grey(answer)]);
+function peopleDriftOf([a, b]: Buffer[], boxes: Box[], exclude: Box[]): number {
+  const S = DRIFT_S;
+  const skip = areaGrid(exclude, S);
   let worst = 0;
   for (const box of boxes) {
     const body = areaGrid([{ x: box.x, y: box.y + box.h * 0.45, w: box.w, h: box.h * 0.55 }], S);
-    const skip = areaGrid(exclude, S);
     let sum = 0;
     let n = 0;
     for (let i = 0; i < S * S; i++) {

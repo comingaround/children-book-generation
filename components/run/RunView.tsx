@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { cx, money, seconds } from '@/lib/client';
 import { publishExample } from '@/lib/local/examples';
@@ -59,16 +59,23 @@ function RunBody({ run, book, people, price, serverPdf }: { run: Run; book: Book
   const [reading, setReading] = useState(false);
   /** Correction typed under each page, by page index; sent with its next Regenerate. */
   const [fixes, setFixes] = useState<Record<number, string>>({});
+  /** The same, as it is now: read after a long wait, when `fixes` in a closure is stale. */
+  const typed = useRef(fixes);
+  useEffect(() => {
+    typed.current = fixes;
+  }, [fixes]);
   /** Which character a page's correction is for ('' = everyone on the page). */
   const [fixFor, setFixFor] = useState<Record<number, string>>({});
 
-  /** A change to the run; the page updates from storage once it is saved. */
-  async function act(change: () => Promise<unknown>) {
+  /** A change to the run; the page updates from storage once it is saved. false if it failed. */
+  async function act(change: () => Promise<unknown>): Promise<boolean> {
     setError(null);
     try {
       await change();
+      return true;
     } catch (err) {
       setError((err as Error).message);
+      return false;
     }
   }
 
@@ -76,12 +83,27 @@ function RunBody({ run, book, people, price, serverPdf }: { run: Run; book: Book
   const fixOf = (index: number) => fixes[index] ?? (run.pages[index]?.status === 'error' ? run.pages[index].fix ?? '' : '');
   const fixForOf = (index: number) => fixFor[index] ?? (run.pages[index]?.status === 'error' ? run.pages[index].fixFor ?? '' : '');
 
-  async function regenerate(index: number) {
-    await act(() => regeneratePage(run.id, index, fixOf(index), fixForOf(index) || null));
-    // Cleared, not emptied: if this attempt fails, the box shows the correction it was sent with.
+  /**
+   * Once a correction was taken: cleared, not emptied (a queued page that then fails shows the one
+   * it was sent with), and only if the box still holds `sent`: anything typed meanwhile stays.
+   */
+  function clearFix(index: number, sent: string) {
     const without = <T,>(record: Record<number, T>) => Object.fromEntries(Object.entries(record).filter(([key]) => Number(key) !== index));
+    const now = typed.current[index];
+    if (now !== undefined && now !== sent) return;
     setFixes(without);
     setFixFor(without);
+  }
+
+  /** A refused Regenerate (or a failed Edit this version) leaves the correction in its box. */
+  async function regenerate(index: number) {
+    const fix = fixOf(index);
+    if (await act(() => regeneratePage(run.id, index, fix, fixForOf(index) || null))) clearFix(index, fix);
+  }
+
+  async function editVersion(index: number) {
+    const fix = fixOf(index);
+    if (await act(() => touchUpPage(run.id, index, fix))) clearFix(index, fix);
   }
 
   async function remove() {
@@ -412,13 +434,7 @@ function RunBody({ run, book, people, price, serverPdf }: { run: Run; book: Book
                   {serverPdf && file && (
                     <button
                       className={cx(ui.btn, ui.ghost, ui.small, styles.redo)}
-                      onClick={() =>
-                        act(async () => {
-                          const fix = fixes[page.index] ?? '';
-                          setFixes((f) => ({ ...f, [page.index]: '' }));
-                          await touchUpPage(run.id, page.index, fix);
-                        })
-                      }
+                      onClick={() => editVersion(page.index)}
                       disabled={busy}
                       title="Keep this version (faces, poses, everything) and change only what the fix says; with no fix, the clothing goes back to the original's colours and finish."
                     >
